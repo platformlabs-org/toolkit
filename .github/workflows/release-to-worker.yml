@@ -1,0 +1,73 @@
+name: Release -> dl.platformlabs.org
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          jq --version
+          curl --version
+
+      - name: Download release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          echo '${{ toJson(github.event.release.assets) }}' > assets.json
+
+          count="$(jq 'length' assets.json)"
+          echo "Asset count: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "No assets found in release."
+            exit 1
+          fi
+
+          jq -r '.[] | "\(.browser_download_url)\t\(.name)"' assets.json \
+            | while IFS=$'\t' read -r url name; do
+                echo "Downloading: $name"
+                curl -fL --retry 3 --retry-delay 2 -o "dist/$name" "$url"
+              done
+
+          ls -lah dist
+
+      - name: Upload assets to Worker
+        env:
+          UPLOAD_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          PROJECT: PlatformToolkits
+          BASE: https://dl.platformlabs.org
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "$PROJECT" ]; then
+            PROJECT="${GITHUB_REPOSITORY##*/}"
+          fi
+
+          shopt -s nullglob
+          files=(dist/*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No downloaded files in dist/."
+            exit 1
+          fi
+
+          for f in "${files[@]}"; do
+            name="$(basename "$f")"
+            echo "Uploading: $name"
+            curl -fL --retry 3 --retry-delay 2 \
+              -X PUT "$BASE/api/upload/winget-pkgs/$PROJECT/$TAG/$name" \
+              -H "Authorization: Bearer $UPLOAD_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$f"
+
+            echo "Public URL: $BASE/winget-pkgs/$PROJECT/$TAG/$name"
+          done
