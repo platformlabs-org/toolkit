@@ -43,7 +43,7 @@ jobs:
         env:
           UPLOAD_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
           TAG: ${{ github.event.release.tag_name }}
-          PROJECT: PlatformToolkit
+          PROJECT: Platformlabs_Toolkit
           BASE: https://dl.platformlabs.org
         shell: bash
         run: |
