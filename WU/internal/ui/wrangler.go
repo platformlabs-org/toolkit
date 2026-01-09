@@ -24,7 +24,7 @@ var (
 	red    = color.New(color.FgRed).SprintFunc()
 )
 
-const line = "───────────────────"
+const line = "────────────────────────────────────────────────"
 
 type StepCtx struct {
 	Title   string
@@ -35,6 +35,10 @@ type StepCtx struct {
 // Banner prints the tool name and version in Wrangler style
 func Banner(tool, version string) {
 	fmt.Printf("\n %s %s %s\n", cyan("⛅️"), bold(tool), gray(version))
+	fmt.Println(gray(line))
+	fmt.Println("Hardware Dashboard API - Shipping Label Creator")
+	fmt.Println(" ")
+	fmt.Println("                             liuty24@lenovo.com")
 	fmt.Println(gray(line))
 }
 

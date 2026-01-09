@@ -20,13 +20,12 @@ import (
 )
 
 const (
-	baseAPI                   = "https://manage.devcenter.microsoft.com/v2.0/my/hardware"
+	baseAPI                    = "https://manage.devcenter.microsoft.com/v2.0/my/hardware"
 	partnerShippingURLTemplate = "https://partner.microsoft.com/en-us/dashboard/hardware/driver/%s/submission/%s/ShippingLabel/%d"
 )
 
 func Run(opt *cli.CLIOptions) int {
 	ui.Banner("WU", "1.0.0")
-	fmt.Println("Hardware Dashboard API - Shipping Label Creator")
 	ui.EndLine("Start")
 
 	// ---- Step 1: Initialize & Auth ----
@@ -117,7 +116,6 @@ func Run(opt *cli.CLIOptions) int {
 	// devcenter.PrintWorkflowStatus expects map[string]any
 	devcenter.PrintWorkflowStatus(submission)
 
-
 	// ---- Step 3: Metadata & Target Selection ----
 	ui.Section(ui.StepCtx{Title: "Metadata Analysis", Current: 3, Total: 4})
 
@@ -183,7 +181,6 @@ func Run(opt *cli.CLIOptions) int {
 		ui.Ok(fmt.Sprintf("Selected %d hardwareIds", len(selected)))
 	}
 	ui.EndLine("Selected")
-
 
 	// ---- Step 4: Create Label ----
 	ui.Section(ui.StepCtx{Title: "Create Shipping Label", Current: 4, Total: 4})
