@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import ora from "ora";
 import { banner, section, item, endLine, ok, fail, promptText, promptPassword } from "./ui/wrangler";
 import { parseOptions } from "./core/args";
 import { getCredentialPath } from "./config/paths";
@@ -21,8 +22,8 @@ async function main() {
   console.log("Hardware Dashboard API - Shipping Label Creator");
   console.log("=".repeat(100));
 
-  // Step 1/4: Credentials & IDs
-  section({ title: "Initialize", current: 1, total: 4 });
+  // Step 1: Credentials & Token
+  section({ title: "Initialize & Auth", current: 1, total: 4 });
   item("Loading credentials", path.join(".", "credential.json"));
 
   const credPath = getCredentialPath();
@@ -32,6 +33,7 @@ async function main() {
   opt.ClientId = firstNonEmpty(cred.ClientId, opt.ClientId, process.env.HW_CLIENT_ID);
   opt.ClientSecret = firstNonEmpty(cred.ClientSecret, opt.ClientSecret, process.env.HW_CLIENT_SECRET);
 
+  // 1. Ensure credentials exist
   if (!opt.TenantId?.trim()) opt.TenantId = await promptText("tenant_id");
   if (!opt.ClientId?.trim()) opt.ClientId = await promptText("client_id");
   if (!opt.ClientSecret?.trim()) opt.ClientSecret = await promptPassword("client_secret");
@@ -40,6 +42,21 @@ async function main() {
   cred.ClientId = opt.ClientId!;
   cred.ClientSecret = opt.ClientSecret!;
   saveCredential(credPath, cred);
+
+  // 2. Acquire Token immediately (with spinner)
+  const spinner = ora("Acquiring token...").start();
+  let token: string;
+  try {
+    token = await acquireToken(opt.TenantId!, opt.ClientId!, opt.ClientSecret!);
+    spinner.succeed("Token acquired");
+  } catch (err: any) {
+    spinner.fail("Failed to acquire token");
+    throw err;
+  }
+  endLine("Auth OK");
+
+  // Step 2: Input Submission IDs
+  section({ title: "Submission Info", current: 2, total: 4 });
 
   if (!opt.ProductId?.trim()) {
     const raw = await promptText("productId (or submission string)");
@@ -53,27 +70,19 @@ async function main() {
   }
   if (!opt.SubmissionId?.trim()) opt.SubmissionId = await promptText("submissionId");
 
-  endLine("Ready");
-  ok("Inputs OK");
-
-  // Step 2/4: Token + Submission
-  section({ title: "Fetch submission", current: 2, total: 4 });
-  item("Acquiring token");
-  const token = await acquireToken(opt.TenantId!, opt.ClientId!, opt.ClientSecret!);
-  ok("token OK");
-
-  item("Fetching submission");
+  spinner.start("Fetching submission...");
   const submission = await getSubmission(token, opt.ProductId!, opt.SubmissionId!);
-  ok("submission OK");
+  spinner.succeed("Submission fetched");
   printWorkflowStatus(submission);
-  endLine("Fetched");
+  endLine("Ready to parse");
 
-  // Step 3/4: Metadata + selection
+  // Step 3: Metadata + selection
   section({ title: "Parse driverMetadata", current: 3, total: 4 });
-  item("Downloading driverMetadata");
+
+  spinner.start("Downloading driverMetadata...");
   const url = findDriverMetadataUrl(submission);
   const metaRoot = await downloadDriverMetadata(token, url);
-  ok("metadata OK");
+  spinner.succeed("Metadata downloaded");
 
   item("Building candidates list");
   const parsed = parseAllCandidatesWithUi(metaRoot);
@@ -90,7 +99,7 @@ async function main() {
   ok(`selected hardwareIds=${selected.length}`);
   endLine("Selected");
 
-  // Step 4/4: Build payload + POST
+  // Step 4: Build payload + POST
   section({ title: "Create shipping label", current: 4, total: 4 });
   const chids = opt.Chids.length ? normalizeChidsRequired(opt.Chids) : await promptChidsRequired();
 
@@ -109,15 +118,19 @@ async function main() {
     return;
   }
 
-  item("POST /shippingLabels");
-  const resp = await createShippingLabel(token, opt.ProductId!, opt.SubmissionId!, body);
-
-  const shippingId = typeof resp?.id === "number" ? resp.id : null;
-  if (shippingId) {
-    const shippingUrl = `https://partner.microsoft.com/en-us/dashboard/hardware/driver/${opt.ProductId}/submission/${opt.SubmissionId}/ShippingLabel/${shippingId}`;
-    ok(`Created: ${shippingUrl}`);
-  } else {
-    ok("Created (id not found in response)");
+  spinner.start("POST /shippingLabels...");
+  try {
+    const resp = await createShippingLabel(token, opt.ProductId!, opt.SubmissionId!, body);
+    const shippingId = typeof resp?.id === "number" ? resp.id : null;
+    if (shippingId) {
+        const shippingUrl = `https://partner.microsoft.com/en-us/dashboard/hardware/driver/${opt.ProductId}/submission/${opt.SubmissionId}/ShippingLabel/${shippingId}`;
+        spinner.succeed(`Created: ${shippingUrl}`);
+    } else {
+        spinner.succeed("Created (id not found in response)");
+    }
+  } catch (err: any) {
+    spinner.fail("Failed to create shipping label");
+    throw err;
   }
 
   endLine("Complete");
