@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +15,7 @@ import (
 	"WU/internal/shippinglabel"
 	"WU/internal/support"
 	"WU/internal/tui"
+	"WU/internal/ui"
 	"WU/internal/validate"
 )
 
@@ -25,36 +25,62 @@ const (
 )
 
 func Run(opt *cli.CLIOptions) int {
-	fmt.Println("Hardware Dashboard API - Shipping Label Creator (Go) [WU]")
-	fmt.Println(support.Repeat("=", 100))
+	ui.Banner("WU", "1.0.0")
+	fmt.Println("Hardware Dashboard API - Shipping Label Creator")
+	ui.EndLine("Start")
 
-	// ---- credential store/load ----
+	// ---- Step 1: Initialize & Auth ----
+	ui.Section(ui.StepCtx{Title: "Initialize", Current: 1, Total: 4})
+	ui.Item("Loading credentials", "credential.json")
+
 	credPath := credentialPath()
 	cred := auth.LoadCredential(credPath)
 
-	// CLI/env override > credential.json (prompt if missing)
+	// CLI/env override > credential.json
 	opt.TenantID = support.FirstNonEmpty(cred.TenantID, opt.TenantID, os.Getenv("HW_TENANT_ID"))
 	opt.ClientID = support.FirstNonEmpty(cred.ClientID, opt.ClientID, os.Getenv("HW_CLIENT_ID"))
 	opt.ClientSecret = support.FirstNonEmpty(cred.ClientSecret, opt.ClientSecret, os.Getenv("HW_CLIENT_SECRET"))
 
+	// Prompt if missing
 	if support.IsBlank(opt.TenantID) {
-		opt.TenantID = cli.Prompt("tenant_id")
+		opt.TenantID = ui.Prompt("tenant_id", "")
 	}
 	if support.IsBlank(opt.ClientID) {
-		opt.ClientID = cli.Prompt("client_id")
+		opt.ClientID = ui.Prompt("client_id", "")
 	}
 	if support.IsBlank(opt.ClientSecret) {
-		opt.ClientSecret = cli.PromptSecret("client_secret")
+		opt.ClientSecret = ui.PromptSecret("client_secret")
 	}
 
+	// Save back
 	cred.TenantID = opt.TenantID
 	cred.ClientID = opt.ClientID
 	cred.ClientSecret = opt.ClientSecret
 	auth.SaveCredential(credPath, cred)
 
-	// ---- submission shortcut parsing ----
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	httpClient := devcenter.NewClient(baseAPI)
+
+	// Acquire Token (MOVED HERE per requirements)
+	var token string
+	err := ui.Spin("Acquiring token...", func() error {
+		var err error
+		token, err = auth.AcquireToken(ctx, httpClient.HTTP, opt.TenantID, opt.ClientID, opt.ClientSecret)
+		return err
+	})
+	if err != nil {
+		ui.Fail("Token acquisition failed")
+		printErr(err)
+		return exitCode(err)
+	}
+	ui.Ok("Token acquired")
+
+	// ---- Step 2: Submission Selection ----
+	ui.Section(ui.StepCtx{Title: "Submission Selection", Current: 2, Total: 4})
+
 	if support.IsBlank(opt.ProductID) {
-		raw := cli.Prompt("productId")
+		raw := ui.Prompt("productId (or submission shortcut)", "")
 		if p, s, ok := cli.TryParseSubmissionShortcut(raw); ok {
 			opt.ProductID = p
 			if support.IsBlank(opt.SubmissionID) {
@@ -65,80 +91,103 @@ func Run(opt *cli.CLIOptions) int {
 		}
 	}
 	if support.IsBlank(opt.SubmissionID) {
-		opt.SubmissionID = cli.Prompt("submissionId")
+		opt.SubmissionID = ui.Prompt("submissionId", "")
 	}
 
 	if support.IsBlank(opt.TenantID) || support.IsBlank(opt.ClientID) || support.IsBlank(opt.ClientSecret) ||
 		support.IsBlank(opt.ProductID) || support.IsBlank(opt.SubmissionID) {
-		fmt.Fprintln(os.Stderr, "❌ tenant_id / client_id / client_secret / product_id / submission_id 不能为空")
+		ui.Fail("tenant_id / client_id / client_secret / product_id / submission_id cannot be empty")
 		return 2
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
-	defer cancel()
-
-	httpClient := devcenter.NewClient(baseAPI)
-
-	fmt.Println("\n[1/4] 获取 token ...")
-	token, err := auth.AcquireToken(ctx, httpClient.HTTP, opt.TenantID, opt.ClientID, opt.ClientSecret)
+	var submission map[string]any
+	err = ui.Spin("Fetching submission...", func() error {
+		var err error
+		submission, err = devcenter.GetSubmission(ctx, httpClient, token, opt.ProductID, opt.SubmissionID)
+		return err
+	})
 	if err != nil {
+		ui.Fail("Fetch submission failed")
 		printErr(err)
 		return exitCode(err)
 	}
-	fmt.Println("✅ token OK")
+	ui.Ok("Submission fetched")
 
-	fmt.Println("\n[2/4] 获取 submission ...")
-	submission, err := devcenter.GetSubmission(ctx, httpClient, token, opt.ProductID, opt.SubmissionID)
-	if err != nil {
-		printErr(err)
-		return exitCode(err)
-	}
-	fmt.Println("✅ submission OK")
+	// Print workflow status
+	// devcenter.PrintWorkflowStatus expects map[string]any
 	devcenter.PrintWorkflowStatus(submission)
 
-	fmt.Println("\n[3/4] 下载并解析 driverMetadata ...")
-	driverMetadataURL, err := devcenter.FindDriverMetadataURL(submission)
+
+	// ---- Step 3: Metadata & Target Selection ----
+	ui.Section(ui.StepCtx{Title: "Metadata Analysis", Current: 3, Total: 4})
+
+	var metaRoot map[string]any
+	var driverMetadataURL string
+
+	err = ui.Spin("Resolving metadata URL...", func() error {
+		var err error
+		driverMetadataURL, err = devcenter.FindDriverMetadataURL(submission)
+		return err
+	})
 	if err != nil {
 		printErr(err)
 		return exitCode(err)
 	}
 
-	metaRoot, err := devcenter.DownloadDriverMetadata(ctx, httpClient, token, driverMetadataURL)
+	err = ui.Spin("Downloading driverMetadata...", func() error {
+		var err error
+		metaRoot, err = devcenter.DownloadDriverMetadata(ctx, httpClient, token, driverMetadataURL)
+		return err
+	})
 	if err != nil {
 		printErr(err)
 		return exitCode(err)
 	}
 
-	parsed, err := drivermeta.Parse(metaRoot)
+	var parsed *drivermeta.ParseResult
+	err = ui.Spin("Parsing candidates...", func() error {
+		var err error
+		parsed, err = drivermeta.Parse(metaRoot)
+		return err
+	})
 	if err != nil {
 		printErr(err)
 		return exitCode(err)
 	}
-	fmt.Println("✅ metadata OK: candidates=" + support.Itoa(len(parsed.Targets)))
+
+	ui.Ok(fmt.Sprintf("Metadata OK: candidates=%d", len(parsed.Targets)))
+
 	if len(parsed.Targets) == 0 {
-		printErr(support.NewAPIError("metadata 中没有任何 (bundle,inf,os,pnp) 候选，无法继续"))
+		ui.Fail("No candidates found in metadata")
 		return 1
 	}
 
-	// ---- select targets ----
+	// Selection
+	ui.Section(ui.StepCtx{Title: "Selection", Current: 3, Total: 4})
+
 	var selected []drivermeta.HardwareTarget
 	if opt.SelectAll {
 		selected = append(selected, parsed.Targets...)
-		fmt.Println("✅ --select-all：已选择全部 hardwareIds = " + support.Itoa(len(selected)))
+		ui.Ok(fmt.Sprintf("--select-all: selected %d hardwareIds", len(selected)))
 	} else {
+		fmt.Println("")
 		selected, err = selectTargets(parsed, opt)
 		if err != nil {
 			printErr(err)
 			return exitCode(err)
 		}
 		if len(selected) == 0 {
-			printErr(support.NewAPIError("未选择任何 hardwareIds，终止。"))
+			ui.Fail("No hardwareIds selected")
 			return 1
 		}
-		fmt.Println("✅ 已选择 hardwareIds = " + support.Itoa(len(selected)))
+		ui.Ok(fmt.Sprintf("Selected %d hardwareIds", len(selected)))
 	}
+	ui.EndLine("Selected")
 
-	// ---- CHIDs ----
+
+	// ---- Step 4: Create Label ----
+	ui.Section(ui.StepCtx{Title: "Create Shipping Label", Current: 4, Total: 4})
+
 	var chids []string
 	if len(opt.Chids) > 0 {
 		chids, err = validate.NormalizeCHIDsRequired(opt.Chids)
@@ -150,13 +199,14 @@ func Run(opt *cli.CLIOptions) int {
 		return exitCode(err)
 	}
 
-	// ---- name ----
 	name := opt.Name
 	if support.IsBlank(name) {
-		name = cli.PromptWithDefault("Shipping label name", "{OEM Name}: {Project Name}")
+		name = ui.Prompt("Shipping label name", "{OEM Name}: {Project Name}")
+		if name == "{OEM Name}: {Project Name}" {
+			// handled by prompt returning default if user hits enter
+		}
 	}
 
-	// ---- payload build ----
 	bodyObj, err := shippinglabel.BuildPayload(opt, name, selected, chids)
 	if err != nil {
 		printErr(err)
@@ -168,35 +218,37 @@ func Run(opt *cli.CLIOptions) int {
 		outPath = "shippinglabel.request.json"
 	}
 	if err := os.WriteFile(outPath, format.MustJSONIndent(bodyObj), 0644); err != nil {
-		printErr(support.NewAPIError("写入请求体失败: " + err.Error()))
+		ui.Fail("Failed to write request body: " + err.Error())
 		return 1
 	}
-	fmt.Println("\n✅ 已生成请求体：" + outPath)
+	ui.Ok("Request saved: " + outPath)
 
 	if opt.DryRun {
-		fmt.Println("\n--dry-run：不发送 POST。")
+		ui.EndLine("--dry-run (no POST)")
 		return 0
 	}
 
-	fmt.Println("\n[4/4] 创建 shipping label (POST /shippingLabels) ...")
-	respObj, err := devcenter.CreateShippingLabel(ctx, httpClient, token, opt.ProductID, opt.SubmissionID, bodyObj)
+	var respObj map[string]any
+	err = ui.Spin("Creating shipping label...", func() error {
+		var e error
+		respObj, e = devcenter.CreateShippingLabel(ctx, httpClient, token, opt.ProductID, opt.SubmissionID, bodyObj)
+		return e
+	})
+
 	if err != nil {
 		printErr(err)
 		return exitCode(err)
 	}
 
-	if b, e := json.MarshalIndent(respObj, "", "  "); e == nil {
-		fmt.Println("\nResponse:")
-		fmt.Println(string(b))
-	}
-
 	if id, ok := support.TryGetInt64(respObj, "id"); ok {
 		shippingURL := fmt.Sprintf(partnerShippingURLTemplate, opt.ProductID, opt.SubmissionID, id)
-		fmt.Println("\n✅ 创建成功，Shipping URL: " + shippingURL)
+		ui.Ok("Created: " + shippingURL)
 	} else {
-		fmt.Println("\n✅ 创建成功（返回中未找到 id）")
+		ui.Ok("Created (id not found in response)")
 	}
 
+	ui.EndLine("Complete")
+	ui.Prompt("Press Enter to exit", "")
 	return 0
 }
 
@@ -205,8 +257,8 @@ func selectTargets(parsed *drivermeta.ParseResult, opt *cli.CLIOptions) ([]drive
 
 	// offer filter if too many (same behavior)
 	if len(working) > 300 && opt.OfferFilter {
-		if cli.PromptYesNo(fmt.Sprintf("候选组合很多（%d），是否先用关键字过滤？", len(working)), true) {
-			kw := cli.PromptWithDefault("过滤关键字（匹配 INF/OS/PNP/描述；留空=不筛选）", "")
+		if ui.PromptYesNo(fmt.Sprintf("Too many candidates (%d). Filter by keyword?", len(working)), true) {
+			kw := ui.Prompt("Filter keyword (INF/OS/PNP...)", "")
 			if !support.IsBlank(kw) {
 				low := support.ToLower(kw)
 				tmp := make([]drivermeta.HardwareTarget, 0, len(working))
@@ -225,7 +277,7 @@ func selectTargets(parsed *drivermeta.ParseResult, opt *cli.CLIOptions) ([]drive
 	}
 
 	if len(working) == 0 {
-		return nil, support.NewAPIError("过滤后没有任何候选项。")
+		return nil, support.NewAPIError("No candidates after filter.")
 	}
 
 	items := drivermeta.BuildListItems(working, parsed.UI)
@@ -237,10 +289,10 @@ func selectTargets(parsed *drivermeta.ParseResult, opt *cli.CLIOptions) ([]drive
 		for _, it := range items {
 			texts = append(texts, it.Text)
 		}
-		idxs, err = cli.PromptIndexSelection("选择硬件目标（单页：B# | INF | OS | PNP | 描述）", texts, false, true)
+		idxs, err = cli.PromptIndexSelection("Select targets", texts, false, true)
 	} else {
 		idxs, err = tui.RunMultiSelectLegend(
-			"选择硬件目标（单页：B# | INF | OS | PNP | 描述）",
+			"Select targets (Space to toggle, Enter to confirm)",
 			drivermeta.ToTUILegends(parsed.UI.Legends),
 			items,
 		)
@@ -266,7 +318,7 @@ func credentialPath() string {
 
 func exitCode(err error) int {
 	if support.IsCanceled(err) || support.IsCanceledLike(err) {
-		fmt.Fprintln(os.Stderr, "\n用户取消或超时。")
+		ui.Fail("User canceled or timeout.")
 		return 130
 	}
 	if support.IsAPIError(err) {
@@ -276,6 +328,5 @@ func exitCode(err error) int {
 }
 
 func printErr(err error) {
-	fmt.Fprintln(os.Stderr, "\n❌ 错误：")
 	fmt.Fprintln(os.Stderr, err.Error())
 }
