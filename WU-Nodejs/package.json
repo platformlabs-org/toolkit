@@ -1,0 +1,28 @@
+{
+  "name": "WU",
+  "version": "1.0.0",
+  "description": "Hardware Dashboard API - Shipping Label Creator (WU)",
+  "bin": "dist/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "build:exe": "npm run build && pkg . --targets node18-win-x64 --output WU.exe"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "inquirer": "^9.2.12",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "pkg": "^5.8.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  },
+  "pkg": {
+    "scripts": "dist/**/*.js",
+    "assets": []
+  }
+}

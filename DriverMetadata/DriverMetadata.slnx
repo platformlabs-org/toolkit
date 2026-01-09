@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="DriverMetadata/DriverMetadata.csproj" Id="c322fc7d-6698-4825-af1a-b029b50c0c4e">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+</Solution>
