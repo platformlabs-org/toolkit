@@ -20,7 +20,7 @@ var (
 	blue   = color.New(color.FgBlue).SprintFunc()
 	green  = color.New(color.FgGreen).SprintFunc()
 	yellow = color.New(color.FgYellow).SprintFunc()
-	orange = color.New(color.FgHiYellow).SprintFunc() // HiYellow often looks like bright orange/yellow
+	orange = color.RGB(189, 91, 8).SprintFunc() // #bd5b08
 	red    = color.New(color.FgRed).SprintFunc()
 )
 
