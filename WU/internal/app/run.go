@@ -248,6 +248,7 @@ func Run(opt *cli.CLIOptions) int {
 	}
 
 	ui.EndLine("Complete")
+	ui.Prompt("Press Enter to exit", "")
 	return 0
 }
 

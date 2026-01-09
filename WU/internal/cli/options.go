@@ -58,7 +58,7 @@ func defaultCLIOptions() *CLIOptions {
 
 		MsContact:            "feizh@microsoft.com",
 		ValidationsPerformed: "Product assurance team full range tested",
-		AffectedOems:         []string{"Lenovo"},
+		AffectedOems:         []string{"N/A"},
 		IsRebootRequired:     false,
 		IsCoEngineered:       false,
 		IsForUnreleasedHardware: false,
