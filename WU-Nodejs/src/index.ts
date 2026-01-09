@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { banner, section, item, endLine, ok, fail, promptText, promptPassword } from "./ui/wrangler";
+import { banner, section, item, endLine, ok, fail, promptText, promptPassword, spin } from "./ui/wrangler";
 import { parseOptions } from "./core/args";
 import { getCredentialPath } from "./config/paths";
 import { loadCredential, saveCredential } from "./config/credentialStore";
@@ -22,7 +22,7 @@ async function main() {
   console.log("=".repeat(100));
 
   // Step 1/4: Credentials & IDs
-  section({ title: "Initialize", current: 1, total: 4 });
+  section({ title: "Initialize & Auth", current: 1, total: 4 });
   item("Loading credentials", path.join(".", "credential.json"));
 
   const credPath = getCredentialPath();
@@ -32,6 +32,7 @@ async function main() {
   opt.ClientId = firstNonEmpty(cred.ClientId, opt.ClientId, process.env.HW_CLIENT_ID);
   opt.ClientSecret = firstNonEmpty(cred.ClientSecret, opt.ClientSecret, process.env.HW_CLIENT_SECRET);
 
+  // 1. Prompt for credentials if missing
   if (!opt.TenantId?.trim()) opt.TenantId = await promptText("tenant_id");
   if (!opt.ClientId?.trim()) opt.ClientId = await promptText("client_id");
   if (!opt.ClientSecret?.trim()) opt.ClientSecret = await promptPassword("client_secret");
@@ -41,6 +42,13 @@ async function main() {
   cred.ClientSecret = opt.ClientSecret!;
   saveCredential(credPath, cred);
 
+  // 2. Acquire Token *BEFORE* asking for Product/Submission ID
+  const token = await spin("Acquiring token", async () => {
+    return await acquireToken(opt.TenantId!, opt.ClientId!, opt.ClientSecret!);
+  });
+  // ok("token OK"); // Spinner success checkmark is enough
+
+  // 3. Now Prompt for Product/Submission ID (if not provided via args)
   if (!opt.ProductId?.trim()) {
     const raw = await promptText("productId (or submission string)");
     const parsed = tryParseSubmissionShortcut(raw);
@@ -54,26 +62,25 @@ async function main() {
   if (!opt.SubmissionId?.trim()) opt.SubmissionId = await promptText("submissionId");
 
   endLine("Ready");
-  ok("Inputs OK");
+  ok("Inputs OK & Authenticated");
 
-  // Step 2/4: Token + Submission
+  // Step 2/4: Fetch Submission
   section({ title: "Fetch submission", current: 2, total: 4 });
-  item("Acquiring token");
-  const token = await acquireToken(opt.TenantId!, opt.ClientId!, opt.ClientSecret!);
-  ok("token OK");
 
-  item("Fetching submission");
-  const submission = await getSubmission(token, opt.ProductId!, opt.SubmissionId!);
-  ok("submission OK");
+  const submission = await spin("Fetching submission", async () => {
+    return await getSubmission(token, opt.ProductId!, opt.SubmissionId!);
+  });
+
   printWorkflowStatus(submission);
   endLine("Fetched");
 
   // Step 3/4: Metadata + selection
   section({ title: "Parse driverMetadata", current: 3, total: 4 });
-  item("Downloading driverMetadata");
-  const url = findDriverMetadataUrl(submission);
-  const metaRoot = await downloadDriverMetadata(token, url);
-  ok("metadata OK");
+
+  const metaRoot = await spin("Downloading driverMetadata", async () => {
+    const url = findDriverMetadataUrl(submission);
+    return await downloadDriverMetadata(token, url);
+  });
 
   item("Building candidates list");
   const parsed = parseAllCandidatesWithUi(metaRoot);
@@ -109,8 +116,9 @@ async function main() {
     return;
   }
 
-  item("POST /shippingLabels");
-  const resp = await createShippingLabel(token, opt.ProductId!, opt.SubmissionId!, body);
+  const resp = await spin("POST /shippingLabels", async () => {
+     return await createShippingLabel(token, opt.ProductId!, opt.SubmissionId!, body);
+  });
 
   const shippingId = typeof resp?.id === "number" ? resp.id : null;
   if (shippingId) {

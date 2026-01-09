@@ -1,23 +1,16 @@
 import chalk from "chalk";
 import inquirer from "inquirer";
+import ora from "ora";
 
-export type StepCtx = { title: string; current: number; total: number };
-
-const line = "───────────────────";
-
-export function banner(tool: string, version: string) {
-  // 模仿 wrangler：云朵 + 版本 + 分割线
-  console.log(`\n ${chalk.cyan("⛅️")} ${chalk.bold(tool)} ${chalk.gray(version)}`);
-  console.log(chalk.gray(line));
+export function banner(title: string, version: string) {
+  console.log(chalk.bold.cyan(`\n${title} v${version}`));
 }
 
-export function section(step: StepCtx) {
-  // “╭ … Step x of y”
-  console.log("");
-  console.log(
-    `${chalk.gray("╭")} ${chalk.bold(step.title)} ${chalk.gray(`Step ${step.current} of ${step.total}`)}`
-  );
-  console.log(chalk.gray("│"));
+export function section(opts: { title: string; current: number; total: number }) {
+  // “1/4: Title”
+  const tag = chalk.bgBlue.black(` ${opts.current}/${opts.total} `);
+  console.log(`\n${tag} ${chalk.bold.white(opts.title)}`);
+  console.log(chalk.gray("─".repeat(50)));
 }
 
 export function item(label: string, value?: string) {
@@ -71,4 +64,41 @@ export async function promptConfirm(message: string, def = true) {
     { type: "confirm", name: "v", message, default: def }
   ]);
   return !!ans.v;
+}
+
+// ─── Spinner Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Execute a promise with a spinner.
+ * @param text The text to display while spinning.
+ * @param action The async function to execute.
+ * @returns The result of the action.
+ */
+export async function spin<T>(text: string, action: () => Promise<T>): Promise<T> {
+  const spinner = ora({
+    text: text,
+    color: "cyan",
+    spinner: "dots"
+  }).start();
+
+  try {
+    const result = await action();
+    spinner.succeed();
+    return result;
+  } catch (err) {
+    spinner.fail();
+    throw err;
+  }
+}
+
+/**
+ * Start a spinner and return the spinner instance for manual control.
+ * @param text Initial text
+ */
+export function startSpinner(text: string) {
+  return ora({
+    text: text,
+    color: "cyan",
+    spinner: "dots"
+  }).start();
 }
