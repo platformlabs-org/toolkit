@@ -20,6 +20,7 @@ var (
 	blue   = color.New(color.FgBlue).SprintFunc()
 	green  = color.New(color.FgGreen).SprintFunc()
 	yellow = color.New(color.FgYellow).SprintFunc()
+	orange = color.New(color.FgHiYellow).SprintFunc() // HiYellow often looks like bright orange/yellow
 	red    = color.New(color.FgRed).SprintFunc()
 )
 
@@ -40,7 +41,7 @@ func Banner(tool, version string) {
 // Section prints a section header
 func Section(step StepCtx) {
 	fmt.Println("")
-	fmt.Printf("%s %s %s\n", gray("╭"), bold(step.Title), gray(fmt.Sprintf("Step %d of %d", step.Current, step.Total)))
+	fmt.Printf("%s %s %s\n", gray("╭"), orange(step.Title), gray(fmt.Sprintf("Step %d of %d", step.Current, step.Total)))
 	fmt.Println(gray("│"))
 }
 
