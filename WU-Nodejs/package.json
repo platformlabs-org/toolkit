@@ -11,8 +11,9 @@
     "build:exe": "npm run build && pkg . --targets node18-win-x64 --output WU.exe"
   },
   "dependencies": {
-    "chalk": "^5.3.0",
-    "inquirer": "^9.2.12",
+    "chalk": "^4.1.2",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
