@@ -1,4 +1,19 @@
-﻿using System;
+﻿// AppTrace (.NET Framework 4.8 compatible, no time-limit logic)
+// - Runs until user presses Ctrl+C (or console closes).
+// - CSV supports stacking: run_id + RUN_START/RUN_END rows.
+// Build suggestions:
+//   - Use .NET Framework 4.8 project, Language Version <= C# 7.3 (this file avoids newer syntax like ??=).
+//
+// Usage examples:
+//   AppTrace.exe --app="notepad" --csv="events.csv"
+//   AppTrace.exe --app="C:\Windows\System32\notepad.exe" --csv
+//   AppTrace.exe "notepad" --csv --poll=200ms
+//
+// Notes:
+// - Removed all duration/timeout logic. (No --duration / positional duration.)
+// - Stop by Ctrl+C.
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -12,10 +27,6 @@ namespace AppTrace
 {
     internal static class Program
     {
-        private static readonly TimeSpan DefaultDuration = TimeSpan.FromSeconds(60);
-        private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
-        private const int MaxEventBuffer = 5000;
-
         private static readonly string[] AsciiArt =
         {
             "   _____              ___________                           ",
@@ -26,7 +37,7 @@ namespace AppTrace
             "        \\/|__|   |__|                       \\/     \\/    \\/ "
         };
 
-        private const string Email = "i@terry.ee";
+        private const string Email = "liuty24@lenovo.com";
 
         private static int Main(string[] args)
         {
@@ -48,228 +59,170 @@ namespace AppTrace
         {
             Console.OutputEncoding = Encoding.UTF8;
 
-            // 固定 Header（不随窗口宽度变化）
-            var header = HeaderBox.Build(
-                asciiLines: AsciiArt,
-                email: Email,
-                innerPadding: 2,
-                borderStyle: BorderStyle.PlusCorners // +----+
-            );
-
-            // 程序启动立刻显示 Header
+            var header = HeaderBox.Build(AsciiArt, Email, innerPadding: 2);
             header.PrintColored();
             Console.WriteLine();
 
-            ParseArgs(args, out string appPath, out TimeSpan duration, out bool csvEnabled, out string csvPath);
+            TraceOptions options = TraceOptions.Parse(args);
 
-            if (string.IsNullOrWhiteSpace(appPath))
+            if (string.IsNullOrWhiteSpace(options.AppPath))
             {
                 Console.Write("请输入要启动的程序（例如 notepad 或 C:\\Windows\\System32\\notepad.exe）：");
-                appPath = Console.ReadLine();
+                options.AppPath = Console.ReadLine();
             }
 
-            if (string.IsNullOrWhiteSpace(appPath))
+            if (string.IsNullOrWhiteSpace(options.AppPath))
             {
                 Console.WriteLine("未提供启动程序路径，退出。");
                 return;
             }
 
+            RunContext ctx = RunContext.Create(options);
+
             CsvLogger csv = null;
-            if (csvEnabled)
+            if (options.CsvEnabled)
             {
+                string csvPath = options.CsvPath;
                 if (string.IsNullOrWhiteSpace(csvPath))
                 {
-                    string ts = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-                    csvPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, $"AppTrace_{ts}.csv");
+                    csvPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "AppTrace_events.csv");
                 }
-                csv = new CsvLogger(csvPath);
-                csv.WriteHeader();
+
+                csv = new CsvLogger(csvPath, ctx);
+                csv.WriteHeaderIfNeeded();
+                csv.WriteRunStart();
             }
+
+            var renderer = new ConsoleRenderer(header);
+            var stats = new MonitorStats();
+            var events = new RingBuffer<EventRecord>(options.MaxEventBuffer);
+
+            // Stop control: Ctrl+C
+            var stopCts = new CancellationTokenSource();
+            ConsoleCancelEventHandler cancelHandler = (s, e) =>
+            {
+                e.Cancel = true; // do not kill process immediately
+                try { stopCts.Cancel(); } catch { /* ignore */ }
+            };
+
+            Console.CancelKeyPress += cancelHandler;
+
+            // Ensure on process exit we flush RUN_END best-effort
+            EventHandler processExitHandler = (s, e) =>
+            {
+                try { stopCts.Cancel(); } catch { /* ignore */ }
+            };
+            AppDomain.CurrentDomain.ProcessExit += processExitHandler;
+
+            string infoLine = options.CsvEnabled
+                ? string.Format("监控：无限期 / {0:0}ms | CSV: {1} | run_id: {2} | Ctrl+C 停止",
+                    options.PollInterval.TotalMilliseconds,
+                    Path.GetFileName(csv != null ? csv.Path : (options.CsvPath ?? "AppTrace_events.csv")),
+                    ctx.RunId)
+                : string.Format("监控：无限期 / {0:0}ms | run_id: {1} | Ctrl+C 停止",
+                    options.PollInterval.TotalMilliseconds,
+                    ctx.RunId);
 
             try
             {
                 var sw = Stopwatch.StartNew();
-                StartProcessBestEffort(appPath.Trim());
 
-                var renderer = new ConsoleRenderer(header);
-                var events = new RingBuffer<EventRecord>(MaxEventBuffer);
+                StartProcessBestEffort(options.AppPath.Trim());
 
-                string infoLine = csvEnabled
-                    ? $"监控：{duration.TotalSeconds:0}s / {PollInterval.TotalMilliseconds:0}ms | CSV: {Path.GetFileName(csvPath)}"
-                    : $"监控：{duration.TotalSeconds:0}s / {PollInterval.TotalMilliseconds:0}ms";
-
-                var prev = WindowSnapshot.Capture(ignoreEmptyTitle: true);
+                WindowSnapshot prev = WindowSnapshot.Capture(ignoreEmptyTitle: true);
 
                 renderer.Redraw(infoLine, events);
                 int lastW = renderer.TryGetWindowWidth();
 
-                using (var cts = new CancellationTokenSource(duration))
+                while (!stopCts.IsCancellationRequested)
                 {
-                    while (!cts.IsCancellationRequested)
+                    // .NET 4.8 supports Task.Delay
+                    await Task.Delay(options.PollInterval).ConfigureAwait(false);
+
+                    int curW = renderer.TryGetWindowWidth();
+                    if (curW != lastW)
                     {
-                        await Task.Delay(PollInterval, cts.Token).ConfigureAwait(false);
-
-                        int curW = renderer.TryGetWindowWidth();
-                        if (curW != lastW)
-                        {
-                            lastW = curW;
-                            renderer.Redraw(infoLine, events);
-                        }
-
-                        var cur = WindowSnapshot.Capture(ignoreEmptyTitle: true);
-                        var diff = WindowDiff.Compute(prev, cur);
-
-                        foreach (var w in diff.Added)
-                        {
-                            var rec = EventRecord.Add(sw.Elapsed, w);
-                            events.Add(rec);
-                            renderer.PrintEvent(rec);
-                            csv?.Write(rec);
-                        }
-
-                        foreach (var w in diff.Removed)
-                        {
-                            var rec = EventRecord.Del(sw.Elapsed, w);
-                            events.Add(rec);
-                            renderer.PrintEvent(rec);
-                            csv?.Write(rec);
-                        }
-
-                        foreach (var change in diff.TitleChanged)
-                        {
-                            var rec = EventRecord.Chg(sw.Elapsed, change.NewInfo, change.OldInfo.Title, change.NewInfo.Title);
-                            events.Add(rec);
-                            renderer.PrintEvent(rec);
-                            csv?.Write(rec);
-                        }
-
-                        prev = cur;
+                        lastW = curW;
+                        renderer.Redraw(infoLine, events);
                     }
+
+                    WindowSnapshot cur = WindowSnapshot.Capture(ignoreEmptyTitle: true);
+                    WindowDiff diff = WindowDiff.Compute(prev, cur);
+
+                    for (int i = 0; i < diff.Added.Count; i++)
+                    {
+                        EventRecord rec = EventRecord.Add(sw.Elapsed, diff.Added[i]);
+                        ConsumeEvent(rec, events, renderer, csv, stats);
+                    }
+
+                    for (int i = 0; i < diff.Removed.Count; i++)
+                    {
+                        EventRecord rec = EventRecord.Del(sw.Elapsed, diff.Removed[i]);
+                        ConsumeEvent(rec, events, renderer, csv, stats);
+                    }
+
+                    for (int i = 0; i < diff.TitleChanged.Count; i++)
+                    {
+                        WindowTitleChange change = diff.TitleChanged[i];
+                        EventRecord rec = EventRecord.Chg(sw.Elapsed, change.NewInfo, change.OldInfo.Title, change.NewInfo.Title);
+                        ConsumeEvent(rec, events, renderer, csv, stats);
+                    }
+
+                    prev = cur;
                 }
 
                 renderer.Redraw(
-                    csvEnabled
-                        ? $"监控结束（{duration.TotalSeconds:0}s）。CSV：{csvPath}"
-                        : $"监控结束（{duration.TotalSeconds:0}s）。",
+                    options.CsvEnabled
+                        ? string.Format("监控结束。CSV：{0}", (csv != null ? csv.Path : ""))
+                        : "监控结束。",
                     events);
+
+                if (csv != null)
+                    csv.WriteRunEnd(sw.Elapsed, stats);
             }
             finally
             {
-                csv?.Dispose();
+                // Unhook handlers
+                try { Console.CancelKeyPress -= cancelHandler; } catch { /* ignore */ }
+                try { AppDomain.CurrentDomain.ProcessExit -= processExitHandler; } catch { /* ignore */ }
+
+                if (csv != null) csv.Dispose();
                 SafeResetColor();
             }
         }
 
-        private static void ParseArgs(string[] args,
-            out string appPath,
-            out TimeSpan duration,
-            out bool csvEnabled,
-            out string csvPath)
+        private static void ConsumeEvent(
+            EventRecord rec,
+            RingBuffer<EventRecord> buffer,
+            ConsoleRenderer renderer,
+            CsvLogger csv,
+            MonitorStats stats)
         {
-            appPath = null;
-            duration = DefaultDuration;
-            csvEnabled = false;
-            csvPath = null;
+            buffer.Add(rec);
+            renderer.PrintEvent(rec);
 
-            if (args == null || args.Length == 0) return;
+            stats.TotalEvents++;
+            if (rec.Type == EventType.ADD) stats.Added++;
+            else if (rec.Type == EventType.DEL) stats.Removed++;
+            else if (rec.Type == EventType.CHG) stats.Changed++;
 
-            foreach (var a in args)
-            {
-                if (string.IsNullOrWhiteSpace(a)) continue;
-
-                // app
-                if (a.StartsWith("--app=", StringComparison.OrdinalIgnoreCase))
-                    appPath = a.Substring("--app=".Length).Trim('"');
-                else if (a.StartsWith("/app=", StringComparison.OrdinalIgnoreCase))
-                    appPath = a.Substring("/app=".Length).Trim('"');
-
-                // duration
-                else if (a.StartsWith("--duration=", StringComparison.OrdinalIgnoreCase))
-                    duration = ParseDurationBestEffort(a.Substring("--duration=".Length));
-                else if (a.StartsWith("/duration=", StringComparison.OrdinalIgnoreCase))
-                    duration = ParseDurationBestEffort(a.Substring("/duration=".Length));
-                else if (a.StartsWith("-t=", StringComparison.OrdinalIgnoreCase))
-                    duration = ParseDurationBestEffort(a.Substring("-t=".Length));
-
-                // csv (默认不启用：只有显式指定才启用)
-                else if (string.Equals(a, "--csv", StringComparison.OrdinalIgnoreCase) ||
-                         string.Equals(a, "/csv", StringComparison.OrdinalIgnoreCase))
-                {
-                    csvEnabled = true;
-                }
-                else if (a.StartsWith("--csv=", StringComparison.OrdinalIgnoreCase))
-                {
-                    csvEnabled = true;
-                    csvPath = a.Substring("--csv=".Length).Trim('"');
-                }
-                else if (a.StartsWith("/csv=", StringComparison.OrdinalIgnoreCase))
-                {
-                    csvEnabled = true;
-                    csvPath = a.Substring("/csv=".Length).Trim('"');
-                }
-            }
-
-            // 位置参数：AppTrace.exe <appPath> [duration]
-            var positional = new List<string>();
-            foreach (var a in args)
-            {
-                if (string.IsNullOrWhiteSpace(a)) continue;
-                if (a.StartsWith("-", StringComparison.OrdinalIgnoreCase) || a.StartsWith("/", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                positional.Add(a);
-            }
-
-            if (string.IsNullOrWhiteSpace(appPath) && positional.Count >= 1)
-                appPath = positional[0].Trim('"');
-
-            if (positional.Count >= 2)
-                duration = ParseDurationBestEffort(positional[1]);
-        }
-
-        private static TimeSpan ParseDurationBestEffort(string s)
-        {
-            if (string.IsNullOrWhiteSpace(s)) return DefaultDuration;
-            s = s.Trim().Trim('"');
-
-            if (TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var ts))
-                return ts.TotalMilliseconds <= 0 ? DefaultDuration : ts;
-
-            if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int sec) && sec > 0)
-                return TimeSpan.FromSeconds(sec);
-
-            var lower = s.ToLowerInvariant();
-
-            if (lower.EndsWith("ms") && double.TryParse(lower.Substring(0, lower.Length - 2), NumberStyles.Float, CultureInfo.InvariantCulture, out double ms) && ms > 0)
-                return TimeSpan.FromMilliseconds(ms);
-
-            if (lower.EndsWith("s") && double.TryParse(lower.Substring(0, lower.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out double sVal) && sVal > 0)
-                return TimeSpan.FromSeconds(sVal);
-
-            if (lower.EndsWith("m") && double.TryParse(lower.Substring(0, lower.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out double mVal) && mVal > 0)
-                return TimeSpan.FromMinutes(mVal);
-
-            if (lower.EndsWith("h") && double.TryParse(lower.Substring(0, lower.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out double hVal) && hVal > 0)
-                return TimeSpan.FromHours(hVal);
-
-            return DefaultDuration;
+            if (csv != null) csv.WriteEvent(rec);
         }
 
         private static void StartProcessBestEffort(string commandOrPath)
         {
             try
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = commandOrPath,
-                    UseShellExecute = true
-                };
+                var psi = new ProcessStartInfo();
+                psi.FileName = commandOrPath;
+                psi.UseShellExecute = true;
                 Process.Start(psi);
             }
             catch (Exception ex)
             {
                 SafeResetColor();
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"WARN: 启动失败：{ex.Message}");
+                Console.WriteLine("WARN: 启动失败：" + ex.Message);
                 SafeResetColor();
             }
         }
@@ -280,13 +233,192 @@ namespace AppTrace
         }
     }
 
-    // ===================== Header（固定样式 + 彩色输出） =====================
+    // ===================== Options / RunContext / Stats =====================
 
-    internal enum BorderStyle
+    internal sealed class TraceOptions
     {
-        Pipes,       // |----|
-        PlusCorners  // +----+
+        public TimeSpan PollInterval { get; set; }
+        public int MaxEventBuffer { get; set; }
+
+        public string AppPath { get; set; }
+        public bool CsvEnabled { get; set; }
+        public string CsvPath { get; set; }
+
+        public string[] RawArgs { get; set; }
+
+        public TraceOptions()
+        {
+            PollInterval = TimeSpan.FromMilliseconds(200);
+            MaxEventBuffer = 5000;
+            RawArgs = new string[0];
+        }
+
+        public static TraceOptions Parse(string[] args)
+        {
+            var opt = new TraceOptions();
+            opt.RawArgs = args ?? new string[0];
+
+            if (args == null || args.Length == 0) return opt;
+
+            foreach (var a0 in args)
+            {
+                string a = (a0 ?? "").Trim();
+                if (string.IsNullOrWhiteSpace(a)) continue;
+
+                // app
+                if (a.StartsWith("--app=", StringComparison.OrdinalIgnoreCase))
+                    opt.AppPath = TrimQuotes(a.Substring("--app=".Length));
+                else if (a.StartsWith("/app=", StringComparison.OrdinalIgnoreCase))
+                    opt.AppPath = TrimQuotes(a.Substring("/app=".Length));
+
+                // poll interval
+                else if (a.StartsWith("--poll=", StringComparison.OrdinalIgnoreCase))
+                    opt.PollInterval = ParseDurationBestEffort(a.Substring("--poll=".Length), opt.PollInterval);
+                else if (a.StartsWith("/poll=", StringComparison.OrdinalIgnoreCase))
+                    opt.PollInterval = ParseDurationBestEffort(a.Substring("/poll=".Length), opt.PollInterval);
+
+                // csv
+                else if (string.Equals(a, "--csv", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(a, "/csv", StringComparison.OrdinalIgnoreCase))
+                {
+                    opt.CsvEnabled = true;
+                }
+                else if (a.StartsWith("--csv=", StringComparison.OrdinalIgnoreCase))
+                {
+                    opt.CsvEnabled = true;
+                    opt.CsvPath = TrimQuotes(a.Substring("--csv=".Length));
+                }
+                else if (a.StartsWith("/csv=", StringComparison.OrdinalIgnoreCase))
+                {
+                    opt.CsvEnabled = true;
+                    opt.CsvPath = TrimQuotes(a.Substring("/csv=".Length));
+                }
+
+                // buffer
+                else if (a.StartsWith("--buf=", StringComparison.OrdinalIgnoreCase))
+                {
+                    int b;
+                    if (int.TryParse(a.Substring("--buf=".Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out b) && b > 0)
+                        opt.MaxEventBuffer = b;
+                }
+            }
+
+            // positional: AppTrace.exe <appPath>
+            var positional = new List<string>();
+            foreach (var a0 in args)
+            {
+                string a = (a0 ?? "").Trim();
+                if (string.IsNullOrWhiteSpace(a)) continue;
+                if (a.StartsWith("-", StringComparison.OrdinalIgnoreCase) || a.StartsWith("/", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                positional.Add(a);
+            }
+
+            if (string.IsNullOrWhiteSpace(opt.AppPath) && positional.Count >= 1)
+                opt.AppPath = TrimQuotes(positional[0]);
+
+            if (opt.PollInterval.TotalMilliseconds <= 0)
+                opt.PollInterval = TimeSpan.FromMilliseconds(200);
+
+            return opt;
+        }
+
+        private static string TrimQuotes(string s)
+        {
+            if (s == null) return null;
+            return s.Trim().Trim('"');
+        }
+
+        // Accept: "00:00:00.200", "200", "200ms", "0.2s", "2m", "1h"
+        private static TimeSpan ParseDurationBestEffort(string s, TimeSpan fallback)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return fallback;
+            s = s.Trim().Trim('"');
+
+            TimeSpan ts;
+            if (TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out ts))
+                return ts.TotalMilliseconds <= 0 ? fallback : ts;
+
+            int sec;
+            if (int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out sec) && sec > 0)
+                return TimeSpan.FromSeconds(sec);
+
+            string lower = s.ToLowerInvariant();
+
+            double ms;
+            if (lower.EndsWith("ms") &&
+                double.TryParse(lower.Substring(0, lower.Length - 2), NumberStyles.Float, CultureInfo.InvariantCulture, out ms) && ms > 0)
+                return TimeSpan.FromMilliseconds(ms);
+
+            double sVal;
+            if (lower.EndsWith("s") &&
+                double.TryParse(lower.Substring(0, lower.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out sVal) && sVal > 0)
+                return TimeSpan.FromSeconds(sVal);
+
+            double mVal;
+            if (lower.EndsWith("m") &&
+                double.TryParse(lower.Substring(0, lower.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out mVal) && mVal > 0)
+                return TimeSpan.FromMinutes(mVal);
+
+            double hVal;
+            if (lower.EndsWith("h") &&
+                double.TryParse(lower.Substring(0, lower.Length - 1), NumberStyles.Float, CultureInfo.InvariantCulture, out hVal) && hVal > 0)
+                return TimeSpan.FromHours(hVal);
+
+            return fallback;
+        }
     }
+
+    internal sealed class RunContext
+    {
+        public string RunId { get; private set; }
+        public DateTime RunStartLocal { get; private set; }
+        public DateTime RunStartUtc { get; private set; }
+
+        public string Host { get; private set; }
+        public string User { get; private set; }
+
+        public string AppPath { get; private set; }
+        public long PollMs { get; private set; }
+
+        public string CmdLine { get; private set; }
+
+        public static RunContext Create(TraceOptions opt)
+        {
+            var nowLocal = DateTime.Now;
+            var nowUtc = DateTime.UtcNow;
+
+            string cmd = "";
+            try
+            {
+                if (opt != null && opt.RawArgs != null)
+                    cmd = string.Join(" ", opt.RawArgs);
+            }
+            catch { /* ignore */ }
+
+            return new RunContext
+            {
+                RunId = Guid.NewGuid().ToString("N"),
+                RunStartLocal = nowLocal,
+                RunStartUtc = nowUtc,
+                Host = Environment.MachineName ?? "",
+                User = Environment.UserName ?? "",
+                AppPath = (opt != null ? (opt.AppPath ?? "") : ""),
+                PollMs = (long)(opt != null ? opt.PollInterval.TotalMilliseconds : 0),
+                CmdLine = cmd ?? ""
+            };
+        }
+    }
+
+    internal sealed class MonitorStats
+    {
+        public long TotalEvents { get; set; }
+        public long Added { get; set; }
+        public long Removed { get; set; }
+        public long Changed { get; set; }
+    }
+
+    // ===================== Header（固定样式 + 彩色输出） =====================
 
     internal sealed class HeaderBox
     {
@@ -294,12 +426,18 @@ namespace AppTrace
         public string Email { get; private set; }
         public int InnerWidth { get; private set; }
         public int InnerPadding { get; private set; }
-        public BorderStyle BorderStyle { get; private set; }
 
-        public static HeaderBox Build(string[] asciiLines, string email, int innerPadding, BorderStyle borderStyle)
+        private const char TL = '╔';
+        private const char TR = '╗';
+        private const char BL = '╚';
+        private const char BR = '╝';
+        private const char H = '═';
+        private const char V = '║';
+
+        public static HeaderBox Build(string[] asciiLines, string email, int innerPadding)
         {
-            asciiLines = asciiLines ?? Array.Empty<string>();
-            email = email ?? string.Empty;
+            if (asciiLines == null) asciiLines = new string[0];
+            if (email == null) email = string.Empty;
             innerPadding = Math.Max(0, innerPadding);
 
             int artWidth = 0;
@@ -314,36 +452,19 @@ namespace AppTrace
                 ArtLines = asciiLines,
                 Email = email,
                 InnerPadding = innerPadding,
-                InnerWidth = innerWidth,
-                BorderStyle = borderStyle
+                InnerWidth = innerWidth
             };
         }
 
         public void PrintColored()
         {
-            // 边框颜色 / 内容颜色
             var borderColor = ConsoleColor.DarkGray;
             var artColor = ConsoleColor.Cyan;
             var emailColor = ConsoleColor.Yellow;
+            var paddingColor = ConsoleColor.Gray;
 
-            char tl, tr, bl, br, h, v;
-            if (BorderStyle == BorderStyle.PlusCorners)
-            {
-                tl = tr = bl = br = '+';
-                h = '-';
-                v = '|';
-            }
-            else
-            {
-                tl = tr = bl = br = '|';
-                h = '-';
-                v = '|';
-            }
+            WriteBorderLine(TL, H, TR, borderColor);
 
-            // top
-            WriteBorderLine(tl, h, tr, borderColor);
-
-            // art lines centered inside
             foreach (var raw in ArtLines)
             {
                 string s = raw ?? "";
@@ -351,33 +472,23 @@ namespace AppTrace
                 int left = Math.Max(0, (InnerWidth - w) / 2);
                 int right = Math.Max(0, InnerWidth - w - left);
 
-                WriteFramedLine(
-                    leftSpaces: left,
-                    content: s,
-                    rightSpaces: right,
-                    contentColor: artColor,
-                    borderColor: borderColor,
-                    v: v);
+                WriteFramedLine(left, s, right, artColor, borderColor, paddingColor);
             }
 
-            // blank line
-            WriteFramedLine(InnerWidth, "", 0, contentColor: ConsoleColor.Gray, borderColor: borderColor, v: v);
+            WriteFramedLine(InnerWidth, "", 0, paddingColor, borderColor, paddingColor);
 
-            // email at right-bottom (right aligned inside)
             int emailW = TextWidth.GetDisplayWidth(Email);
-            int emailLeft = Math.Max(0, InnerWidth - emailW);
-            int emailRight = Math.Max(0, InnerWidth - emailLeft - emailW);
+            int leftPad = Math.Max(0, InnerWidth - emailW);
+            int rightPad = Math.Max(0, InnerWidth - leftPad - emailW);
 
-            // left spaces (gray), email (yellow), right spaces (gray)
-            WriteBorderChar(v, borderColor);
-            WriteSpaces(emailLeft, ConsoleColor.Gray);
+            WriteBorderChar(V, borderColor);
+            WriteSpaces(leftPad, paddingColor);
             WriteText(Email, emailColor);
-            WriteSpaces(emailRight, ConsoleColor.Gray);
-            WriteBorderChar(v, borderColor);
+            WriteSpaces(rightPad, paddingColor);
+            WriteBorderChar(V, borderColor);
             Console.WriteLine();
 
-            // bottom
-            WriteBorderLine(bl, h, br, borderColor);
+            WriteBorderLine(BL, H, BR, borderColor);
 
             SafeResetColor();
         }
@@ -391,21 +502,16 @@ namespace AppTrace
         }
 
         private void WriteFramedLine(int leftSpaces, string content, int rightSpaces,
-            ConsoleColor contentColor, ConsoleColor borderColor, char v)
+            ConsoleColor contentColor, ConsoleColor borderColor, ConsoleColor paddingColor)
         {
-            WriteBorderChar(v, borderColor);
+            WriteBorderChar(V, borderColor);
+            WriteSpaces(leftSpaces, paddingColor);
 
-            // 左空格
-            WriteSpaces(leftSpaces, ConsoleColor.Gray);
-
-            // 内容
             if (!string.IsNullOrEmpty(content))
                 WriteText(content, contentColor);
 
-            // 右空格
-            WriteSpaces(rightSpaces, ConsoleColor.Gray);
-
-            WriteBorderChar(v, borderColor);
+            WriteSpaces(rightSpaces, paddingColor);
+            WriteBorderChar(V, borderColor);
             Console.WriteLine();
         }
 
@@ -448,34 +554,96 @@ namespace AppTrace
         }
     }
 
-    // ===================== CSV（仅在用户启用时写入） =====================
+    // ===================== CSV（append + run_id + RUN_START/RUN_END） =====================
 
     internal sealed class CsvLogger : IDisposable
     {
         private readonly StreamWriter _w;
+        private readonly bool _writeHeader;
+        private long _eventIdx;
+        private readonly RunContext _ctx;
 
-        public CsvLogger(string path)
+        public string Path { get; private set; }
+
+        public CsvLogger(string path, RunContext ctx)
         {
-            var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
-            _w = new StreamWriter(fs, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true))
-            {
-                AutoFlush = true
-            };
+            if (path == null) throw new ArgumentNullException("path");
+            if (ctx == null) throw new ArgumentNullException("ctx");
+
+            Path = path;
+            _ctx = ctx;
+
+            bool existed = File.Exists(Path);
+            long len = 0;
+            try { if (existed) len = new FileInfo(Path).Length; } catch { /* ignore */ }
+
+            var fs = new FileStream(Path, FileMode.Append, FileAccess.Write, FileShare.Read);
+
+            // BOM only for brand new file, avoid multiple BOM in stacked file
+            _w = new StreamWriter(fs, new UTF8Encoding(encoderShouldEmitUTF8Identifier: !existed));
+            _w.AutoFlush = true;
+
+            _writeHeader = (len == 0);
         }
 
-        public void WriteHeader()
+        public void WriteHeaderIfNeeded()
         {
-            _w.WriteLine("local_time,elapsed_ms,event,pid,process,hwnd,title,old_title,new_title");
+            if (!_writeHeader) return;
+
+            // duration_ms removed (no time-limit), keep poll_ms + cmdline
+            _w.WriteLine(
+                "run_id,run_start_local,run_start_utc,host,user,app_path,poll_ms,cmdline," +
+                "local_time,elapsed_ms,event,event_idx,pid,process,process_path,hwnd,title,old_title,new_title," +
+                "total_events,added,removed,changed");
         }
 
-        public void Write(EventRecord r)
+        public void WriteRunStart()
         {
-            string localTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+            WriteRow(
+                localTime: _ctx.RunStartLocal,
+                elapsedMs: 0,
+                evt: "RUN_START",
+                eventIdx: 0,
+                pid: "",
+                proc: "",
+                procPath: "",
+                hwnd: "",
+                title: "",
+                oldTitle: "",
+                newTitle: "",
+                stats: null
+            );
+        }
+
+        public void WriteRunEnd(TimeSpan elapsed, MonitorStats stats)
+        {
+            WriteRow(
+                localTime: DateTime.Now,
+                elapsedMs: (long)elapsed.TotalMilliseconds,
+                evt: "RUN_END",
+                eventIdx: Interlocked.Read(ref _eventIdx),
+                pid: "",
+                proc: "",
+                procPath: "",
+                hwnd: "",
+                title: "",
+                oldTitle: "",
+                newTitle: "",
+                stats: stats
+            );
+        }
+
+        public void WriteEvent(EventRecord r)
+        {
+            var idx = Interlocked.Increment(ref _eventIdx);
+
+            var localTime = DateTime.Now;
             long elapsedMs = (long)r.SinceStart.TotalMilliseconds;
 
             string evt = r.Type.ToString();
             string pid = r.Info.Pid.ToString(CultureInfo.InvariantCulture);
             string proc = r.Info.ProcessName ?? "";
+            string procPath = r.Info.ProcessPath ?? "";
             string hwnd = "0x" + r.Info.Hwnd.ToInt64().ToString("X8", CultureInfo.InvariantCulture);
 
             string title = "";
@@ -492,28 +660,84 @@ namespace AppTrace
                 title = TextWidth.Normalize(r.Info.Title);
             }
 
+            WriteRow(
+                localTime: localTime,
+                elapsedMs: elapsedMs,
+                evt: evt,
+                eventIdx: idx,
+                pid: pid,
+                proc: proc,
+                procPath: procPath,
+                hwnd: hwnd,
+                title: title,
+                oldTitle: oldTitle,
+                newTitle: newTitle,
+                stats: null
+            );
+        }
+
+        private void WriteRow(
+            DateTime localTime,
+            long elapsedMs,
+            string evt,
+            long eventIdx,
+            string pid,
+            string proc,
+            string procPath,
+            string hwnd,
+            string title,
+            string oldTitle,
+            string newTitle,
+            MonitorStats stats)
+        {
+            string runStartLocalStr = _ctx.RunStartLocal.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+            string runStartUtcStr = _ctx.RunStartUtc.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture) + "Z";
+            string localTimeStr = localTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+
+            string totalEvents = (stats == null) ? "" : stats.TotalEvents.ToString(CultureInfo.InvariantCulture);
+            string added = (stats == null) ? "" : stats.Added.ToString(CultureInfo.InvariantCulture);
+            string removed = (stats == null) ? "" : stats.Removed.ToString(CultureInfo.InvariantCulture);
+            string changed = (stats == null) ? "" : stats.Changed.ToString(CultureInfo.InvariantCulture);
+
             _w.WriteLine(string.Join(",",
-                Csv(localTime),
+                Csv(_ctx.RunId),
+                Csv(runStartLocalStr),
+                Csv(runStartUtcStr),
+                Csv(_ctx.Host),
+                Csv(_ctx.User),
+                Csv(_ctx.AppPath),
+                _ctx.PollMs.ToString(CultureInfo.InvariantCulture),
+                Csv(_ctx.CmdLine),
+
+                Csv(localTimeStr),
                 elapsedMs.ToString(CultureInfo.InvariantCulture),
                 Csv(evt),
-                pid,
+                eventIdx.ToString(CultureInfo.InvariantCulture),
+
+                string.IsNullOrEmpty(pid) ? "" : pid,
                 Csv(proc),
+                Csv(procPath),
                 Csv(hwnd),
                 Csv(title),
                 Csv(oldTitle),
-                Csv(newTitle)
+                Csv(newTitle),
+
+                string.IsNullOrEmpty(totalEvents) ? "" : totalEvents,
+                string.IsNullOrEmpty(added) ? "" : added,
+                string.IsNullOrEmpty(removed) ? "" : removed,
+                string.IsNullOrEmpty(changed) ? "" : changed
             ));
         }
 
         private static string Csv(string s)
         {
-            s = s ?? "";
+            if (s == null) s = "";
             return "\"" + s.Replace("\"", "\"\"") + "\"";
         }
 
         public void Dispose()
         {
-            try { _w?.Dispose(); } catch { /* ignore */ }
+            try { if (_w != null) _w.Dispose(); } catch { /* ignore */ }
         }
     }
 
@@ -548,9 +772,8 @@ namespace AppTrace
 
             int linesWritten = 0;
 
-            // Header 固定、彩色
             _header.PrintColored();
-            linesWritten += (AsciiLineCountEstimate(_header) + 2); // 估算，不影响功能
+            linesWritten += 10; // rough estimate
 
             Console.WriteLine();
             linesWritten++;
@@ -597,14 +820,6 @@ namespace AppTrace
 
             Console.ForegroundColor = old;
         }
-
-        private static int AsciiLineCountEstimate(HeaderBox header)
-        {
-            // 上下边框 + art行数 + 空行 + email行
-            // 这里只用于 linesWritten 估算（不影响输出），避免依赖内部字段
-            // 直接按固定结构估算：
-            return 2 + 6 + 1 + 1;
-        }
     }
 
     internal enum EventType { ADD, DEL, CHG }
@@ -618,14 +833,27 @@ namespace AppTrace
         public string OldTitle { get; private set; }
         public string NewTitle { get; private set; }
 
-        public static EventRecord Add(TimeSpan ts, WindowInfo w) =>
-            new EventRecord { Type = EventType.ADD, SinceStart = ts, Info = w };
+        public static EventRecord Add(TimeSpan ts, WindowInfo w)
+        {
+            return new EventRecord { Type = EventType.ADD, SinceStart = ts, Info = w };
+        }
 
-        public static EventRecord Del(TimeSpan ts, WindowInfo w) =>
-            new EventRecord { Type = EventType.DEL, SinceStart = ts, Info = w };
+        public static EventRecord Del(TimeSpan ts, WindowInfo w)
+        {
+            return new EventRecord { Type = EventType.DEL, SinceStart = ts, Info = w };
+        }
 
-        public static EventRecord Chg(TimeSpan ts, WindowInfo w, string oldTitle, string newTitle) =>
-            new EventRecord { Type = EventType.CHG, SinceStart = ts, Info = w, OldTitle = oldTitle ?? "", NewTitle = newTitle ?? "" };
+        public static EventRecord Chg(TimeSpan ts, WindowInfo w, string oldTitle, string newTitle)
+        {
+            return new EventRecord
+            {
+                Type = EventType.CHG,
+                SinceStart = ts,
+                Info = w,
+                OldTitle = oldTitle ?? "",
+                NewTitle = newTitle ?? ""
+            };
+        }
     }
 
     internal sealed class Layout
@@ -711,18 +939,16 @@ namespace AppTrace
 
         public string BuildHeader()
         {
-            var parts = new List<string>
-            {
-                TextWidth.PadRightDisplay("TIME", _wTime),
-                TextWidth.PadRightDisplay("EVT", _wEvt),
-            };
+            var parts = new List<string>();
+            parts.Add(TextWidth.PadRightDisplay("TIME", _wTime));
+            parts.Add(TextWidth.PadRightDisplay("EVT", _wEvt));
 
             if (_showPid) parts.Add(TextWidth.PadRightDisplay("PID", _wPid));
             if (_showProcess) parts.Add(TextWidth.PadRightDisplay("PROCESS", _wProc));
             if (_showHwnd) parts.Add(TextWidth.PadRightDisplay("HWND", _wHwnd));
 
             parts.Add(TextWidth.PadRightDisplay("TITLE", _wTitle));
-            return string.Join("  ", parts);
+            return string.Join("  ", parts.ToArray());
         }
 
         public string Format(EventRecord rec)
@@ -732,25 +958,23 @@ namespace AppTrace
 
             string pid = rec.Info.Pid >= 0 ? rec.Info.Pid.ToString(CultureInfo.InvariantCulture) : "-";
             string proc = string.IsNullOrWhiteSpace(rec.Info.ProcessName) ? "Unknown" : rec.Info.ProcessName;
-            string hwnd = $"0x{rec.Info.Hwnd.ToInt64():X8}";
+            string hwnd = string.Format("0x{0:X8}", rec.Info.Hwnd.ToInt64());
 
             string title;
             if (rec.Type == EventType.CHG)
             {
-                var oldT = TextWidth.Normalize(rec.OldTitle);
-                var newT = TextWidth.Normalize(rec.NewTitle);
-                title = $"{oldT} -> {newT}";
+                string oldT = TextWidth.Normalize(rec.OldTitle);
+                string newT = TextWidth.Normalize(rec.NewTitle);
+                title = oldT + " -> " + newT;
             }
             else
             {
                 title = TextWidth.Normalize(rec.Info.Title);
             }
 
-            var parts = new List<string>
-            {
-                TextWidth.PadRightDisplay(TextWidth.TruncateToDisplayWidth(ts, _wTime), _wTime),
-                TextWidth.PadRightDisplay(TextWidth.TruncateToDisplayWidth(evt, _wEvt), _wEvt),
-            };
+            var parts = new List<string>();
+            parts.Add(TextWidth.PadRightDisplay(TextWidth.TruncateToDisplayWidth(ts, _wTime), _wTime));
+            parts.Add(TextWidth.PadRightDisplay(TextWidth.TruncateToDisplayWidth(evt, _wEvt), _wEvt));
 
             if (_showPid)
                 parts.Add(TextWidth.PadRightDisplay(TextWidth.TruncateToDisplayWidth(pid, _wPid), _wPid));
@@ -760,7 +984,7 @@ namespace AppTrace
                 parts.Add(TextWidth.PadRightDisplay(TextWidth.TruncateToDisplayWidth(hwnd, _wHwnd), _wHwnd));
 
             parts.Add(TextWidth.PadRightDisplay(TextWidth.TruncateToDisplayWidth(title, _wTitle), _wTitle));
-            return string.Join("  ", parts);
+            return string.Join("  ", parts.ToArray());
         }
     }
 
@@ -796,7 +1020,7 @@ namespace AppTrace
             return sb.ToString().Trim();
         }
 
-        // ASCII=1，非ASCII≈2（更适合中英文混排）
+        // ASCII=1，非ASCII≈2
         public static int GetDisplayWidth(string s)
         {
             if (string.IsNullOrEmpty(s)) return 0;
@@ -840,7 +1064,7 @@ namespace AppTrace
 
         public static string PadRightDisplay(string s, int width)
         {
-            s = s ?? string.Empty;
+            if (s == null) s = string.Empty;
             int w = GetDisplayWidth(s);
             if (w >= width) return s;
             return s + new string(' ', width - w);
@@ -855,7 +1079,7 @@ namespace AppTrace
 
         public RingBuffer(int capacity)
         {
-            if (capacity <= 0) throw new ArgumentOutOfRangeException(nameof(capacity));
+            if (capacity <= 0) throw new ArgumentOutOfRangeException("capacity");
             _buf = new T[capacity];
         }
 
@@ -878,13 +1102,20 @@ namespace AppTrace
         }
     }
 
-    // ===================== 窗口 Diff/快照 =====================
+    // ===================== Window Diff / Snapshot =====================
 
     internal sealed class WindowDiff
     {
-        public List<WindowInfo> Added { get; } = new List<WindowInfo>();
-        public List<WindowInfo> Removed { get; } = new List<WindowInfo>();
-        public List<WindowTitleChange> TitleChanged { get; } = new List<WindowTitleChange>();
+        public List<WindowInfo> Added { get; private set; }
+        public List<WindowInfo> Removed { get; private set; }
+        public List<WindowTitleChange> TitleChanged { get; private set; }
+
+        public WindowDiff()
+        {
+            Added = new List<WindowInfo>();
+            Removed = new List<WindowInfo>();
+            TitleChanged = new List<WindowTitleChange>();
+        }
 
         public static WindowDiff Compute(WindowSnapshot prev, WindowSnapshot cur)
         {
@@ -900,9 +1131,10 @@ namespace AppTrace
 
             foreach (var kv in cur.Windows)
             {
-                if (!prev.Windows.TryGetValue(kv.Key, out var oldInfo)) continue;
-                var newInfo = kv.Value;
+                WindowInfo oldInfo;
+                if (!prev.Windows.TryGetValue(kv.Key, out oldInfo)) continue;
 
+                var newInfo = kv.Value;
                 if (!string.Equals(oldInfo.Title, newInfo.Title, StringComparison.Ordinal))
                     d.TitleChanged.Add(new WindowTitleChange(oldInfo, newInfo));
             }
@@ -913,8 +1145,8 @@ namespace AppTrace
 
     internal sealed class WindowTitleChange
     {
-        public WindowInfo OldInfo { get; }
-        public WindowInfo NewInfo { get; }
+        public WindowInfo OldInfo { get; private set; }
+        public WindowInfo NewInfo { get; private set; }
 
         public WindowTitleChange(WindowInfo oldInfo, WindowInfo newInfo)
         {
@@ -925,7 +1157,7 @@ namespace AppTrace
 
     internal sealed class WindowSnapshot
     {
-        public Dictionary<IntPtr, WindowInfo> Windows { get; }
+        public Dictionary<IntPtr, WindowInfo> Windows { get; private set; }
 
         private WindowSnapshot(Dictionary<IntPtr, WindowInfo> windows)
         {
@@ -945,7 +1177,8 @@ namespace AppTrace
                 if (ignoreEmptyTitle && string.IsNullOrWhiteSpace(title))
                     return true;
 
-                NativeMethods.GetWindowThreadProcessId(hWnd, out uint pid);
+                uint pid;
+                NativeMethods.GetWindowThreadProcessId(hWnd, out pid);
                 dict[hWnd] = WindowInfo.From(hWnd, title, (int)pid);
                 return true;
             }, IntPtr.Zero);
@@ -971,7 +1204,7 @@ namespace AppTrace
             {
                 var p = Process.GetProcessById(pid);
                 name = SafeProcessName(p);
-                try { path = p.MainModule?.FileName; } catch { /* ignore */ }
+                try { path = p.MainModule != null ? p.MainModule.FileName : null; } catch { /* ignore */ }
             }
             catch { /* ignore */ }
 
