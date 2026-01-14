@@ -17,6 +17,50 @@ namespace DriverMetadata
         {
             InitializeConsole();
 
+            // ✅ NEW: 参数模式
+            // - 指定 .cat 文件：只解析该 cat
+            // - 指定文件夹：递归遍历所有 cat
+            if (args != null && args.Length > 0 && !string.IsNullOrWhiteSpace(args[0]))
+            {
+                string inputPath = args[0].Trim().Trim('"'); // 支持带引号路径
+
+                if (File.Exists(inputPath))
+                {
+                    if (string.Equals(Path.GetExtension(inputPath), ".cat", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunSingleCat(inputPath);
+                    }
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"❌ Input is a file but not a .cat: {inputPath}");
+                        Console.ResetColor();
+                    }
+
+                    Console.WriteLine("\nfinished. Press any key to exit...");
+                    Console.ReadKey();
+                    return;
+                }
+
+                if (Directory.Exists(inputPath))
+                {
+                    RunFolderCats(inputPath);
+
+                    Console.WriteLine("\nfinished. Press any key to exit...");
+                    Console.ReadKey();
+                    return;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"❌ Path not found: {inputPath}");
+                Console.ResetColor();
+
+                Console.WriteLine("\nfinished. Press any key to exit...");
+                Console.ReadKey();
+                return;
+            }
+
+            // ====== 原来的系统扫描逻辑（不带参数时走这里） ======
             var drivers = DriverService.GetLenovoDrivers();
             var exportList = new List<DriverExportItem>();
 
@@ -166,6 +210,118 @@ namespace DriverMetadata
             Console.ReadKey();
         }
 
+        // ✅ NEW: 只解析一个 cat 文件
+        private static void RunSingleCat(string catPath)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[CAT] {catPath}");
+            Console.ResetColor();
+
+            try
+            {
+                var metadata = CatParser.ExtractMetadata(catPath);
+                if (metadata == null || metadata.Count == 0)
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkYellow;
+                    Console.WriteLine(" └─ No metadata found (not signed / unsupported format / no target OID).");
+                    Console.ResetColor();
+                    Console.WriteLine(new string('-', 90));
+                    return;
+                }
+
+                foreach (var entry in metadata)
+                {
+                    if (!entry.Key.StartsWith("HWID", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.Write($"    > {entry.Key,-22} : ");
+                        Console.ResetColor();
+                        Console.WriteLine(entry.Value);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($" └─ Parse failed: {ex.Message}");
+                Console.ResetColor();
+            }
+
+            Console.WriteLine(new string('-', 90));
+        }
+
+        // ✅ NEW: 遍历文件夹内所有 cat（含子目录）
+        private static void RunFolderCats(string folderPath)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[FOLDER] {folderPath}");
+            Console.ResetColor();
+
+            IEnumerable<string> cats;
+            try
+            {
+                cats = Directory.EnumerateFiles(folderPath, "*.cat", SearchOption.AllDirectories);
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"❌ Enumerate failed: {ex.Message}");
+                Console.ResetColor();
+                return;
+            }
+
+            int total = 0, ok = 0, empty = 0, failed = 0;
+
+            foreach (var cat in cats)
+            {
+                total++;
+
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[CAT] {cat}");
+                Console.ResetColor();
+
+                try
+                {
+                    var metadata = CatParser.ExtractMetadata(cat);
+
+                    if (metadata == null || metadata.Count == 0)
+                    {
+                        empty++;
+                        Console.ForegroundColor = ConsoleColor.DarkYellow;
+                        Console.WriteLine(" └─ No metadata found (not signed / unsupported format / no target OID).");
+                        Console.ResetColor();
+                    }
+                    else
+                    {
+                        ok++;
+                        foreach (var entry in metadata)
+                        {
+                            if (!entry.Key.StartsWith("HWID", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Console.ForegroundColor = ConsoleColor.Yellow;
+                                Console.Write($"    > {entry.Key,-22} : ");
+                                Console.ResetColor();
+                                Console.WriteLine(entry.Value);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($" └─ Parse failed: {ex.Message}");
+                    Console.ResetColor();
+                }
+
+                Console.WriteLine(new string('-', 90));
+            }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"✅ Done. Total: {total}, OK: {ok}, Empty: {empty}, Failed: {failed}");
+            Console.ResetColor();
+        }
+
         static void InitializeConsole()
         {
             // 更稳：某些宿主/重定向场景 Console 句柄可能无效
@@ -309,7 +465,7 @@ namespace DriverMetadata
             {
                 string q = "SELECT DeviceName, DriverVersion, Manufacturer, InfName, DeviceID, HardWareID " +
                            "FROM Win32_PnPSignedDriver WHERE Manufacturer LIKE '%Lenovo%'";
-                            //"FROM Win32_PnPSignedDriver";
+                //"FROM Win32_PnPSignedDriver";
 
                 using (var searcher = new ManagementObjectSearcher(q))
                 {
