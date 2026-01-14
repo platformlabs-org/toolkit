@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="AppTrace/AppTrace.csproj" Id="74a596e9-2017-4252-bce0-be164eae6997">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+</Solution>
