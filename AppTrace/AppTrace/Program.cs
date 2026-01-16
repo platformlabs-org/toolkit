@@ -139,6 +139,8 @@ namespace AppTrace
                 renderer.Redraw(infoLine, events);
                 int lastW = renderer.TryGetWindowWidth();
 
+                bool matched = false;
+
                 while (!stopCts.IsCancellationRequested)
                 {
                     // .NET 4.8 supports Task.Delay
@@ -160,8 +162,6 @@ namespace AppTrace
 
                     WindowSnapshot cur = WindowSnapshot.Capture(ignoreEmptyTitle: true);
                     WindowDiff diff = WindowDiff.Compute(prev, cur);
-
-                    bool matched = false;
 
                     for (int i = 0; i < diff.Added.Count; i++)
                     {
