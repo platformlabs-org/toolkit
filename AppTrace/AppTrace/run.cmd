@@ -64,18 +64,20 @@ if not defined message (
 
 timeout /t 10 /nobreak
 
-for %%F in (!message!) do set "fileName=%%~nxF"
-
 echo ================================================== >> "%resultFilePath%"
 echo Executing: !message! >> "%resultFilePath%"
 echo ================================================== >> "%resultFilePath%"
 
-start /b "" cmd /c ""%APPTracePath%" !message! >> "%resultFilePath%" 2>>&1"
-echo Wait for testing end...
-timeout /t 100 /nobreak
+"%APPTracePath%" !message! --timeout=120s --close --json="%destPath%\last_result.json" >> "%resultFilePath%" 2>>&1
 
-taskkill /im "%fileName%" /im "EXCEL.EXE" /im "POWERPNT.EXE" /im "ML_Scenario.exe"
+if exist "%destPath%\last_result.json" (
+    echo Result JSON: >> "%resultFilePath%"
+    type "%destPath%\last_result.json" >> "%resultFilePath%"
+    echo. >> "%resultFilePath%"
+    del "%destPath%\last_result.json"
+)
 
+echo Test finished for current item.
 timeout /t 10 /nobreak
 
 ::============= DC Battery Check - Auto Charge =============

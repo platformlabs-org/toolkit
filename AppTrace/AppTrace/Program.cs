@@ -99,6 +99,11 @@ namespace AppTrace
 
             // Stop control: Ctrl+C
             var stopCts = new CancellationTokenSource();
+            if (options.Timeout.TotalMilliseconds > 0)
+            {
+                stopCts.CancelAfter(options.Timeout);
+            }
+
             ConsoleCancelEventHandler cancelHandler = (s, e) =>
             {
                 e.Cancel = true; // do not kill process immediately
@@ -137,7 +142,14 @@ namespace AppTrace
                 while (!stopCts.IsCancellationRequested)
                 {
                     // .NET 4.8 supports Task.Delay
-                    await Task.Delay(options.PollInterval).ConfigureAwait(false);
+                    try
+                    {
+                        await Task.Delay(options.PollInterval, stopCts.Token).ConfigureAwait(false);
+                    }
+                    catch (TaskCanceledException)
+                    {
+                        break;
+                    }
 
                     int curW = renderer.TryGetWindowWidth();
                     if (curW != lastW)
@@ -149,10 +161,26 @@ namespace AppTrace
                     WindowSnapshot cur = WindowSnapshot.Capture(ignoreEmptyTitle: true);
                     WindowDiff diff = WindowDiff.Compute(prev, cur);
 
+                    bool matched = false;
+
                     for (int i = 0; i < diff.Added.Count; i++)
                     {
-                        EventRecord rec = EventRecord.Add(sw.Elapsed, diff.Added[i]);
+                        var win = diff.Added[i];
+                        EventRecord rec = EventRecord.Add(sw.Elapsed, win);
                         ConsumeEvent(rec, events, renderer, csv, stats);
+
+                        if (!matched && IsMatch(win, options))
+                        {
+                            matched = true;
+                            // Found target
+                            WriteJsonResult(options.JsonPath, true, sw.Elapsed.TotalMilliseconds, win.ProcessName, "Success");
+                            if (options.AutoClose)
+                            {
+                                CloseProcessTree(win.Pid);
+                            }
+                            // We can exit now
+                            stopCts.Cancel();
+                        }
                     }
 
                     for (int i = 0; i < diff.Removed.Count; i++)
@@ -169,6 +197,12 @@ namespace AppTrace
                     }
 
                     prev = cur;
+                }
+
+                // If cancelled by timeout (and not matched)
+                if (matched == false && stopCts.IsCancellationRequested && options.Timeout.TotalMilliseconds > 0 && sw.Elapsed >= options.Timeout)
+                {
+                     WriteJsonResult(options.JsonPath, false, sw.Elapsed.TotalMilliseconds, options.Target ?? options.AppPath, "Timeout");
                 }
 
                 renderer.Redraw(
@@ -188,6 +222,72 @@ namespace AppTrace
 
                 if (csv != null) csv.Dispose();
                 SafeResetColor();
+            }
+        }
+
+        private static bool IsMatch(WindowInfo win, TraceOptions opt)
+        {
+            string target = opt.Target;
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                // Fallback to AppPath filename
+                if (!string.IsNullOrWhiteSpace(opt.AppPath))
+                {
+                    try { target = Path.GetFileName(opt.AppPath); } catch { }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(target)) return false;
+
+            // Check Process Name
+            if (win.ProcessName != null && win.ProcessName.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            // Check Title
+            if (win.Title != null && win.Title.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            return false;
+        }
+
+        private static void WriteJsonResult(string path, bool success, double ms, string appName, string status)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            try
+            {
+                string json = string.Format(CultureInfo.InvariantCulture,
+                    "{{\"app\": \"{0}\", \"startup_time_ms\": {1}, \"success\": {2}, \"status\": \"{3}\"}}",
+                    EscapeJson(appName),
+                    ms,
+                    success ? "true" : "false",
+                    EscapeJson(status));
+
+                File.WriteAllText(path, json, Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error writing JSON: " + ex.Message);
+            }
+        }
+
+        private static string EscapeJson(string s)
+        {
+            if (s == null) return "";
+            return s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
+
+        private static void CloseProcessTree(int pid)
+        {
+            try
+            {
+                var p = Process.GetProcessById(pid);
+                p.Kill();
+                Console.WriteLine($"Killed process {pid} ({p.ProcessName})");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to kill process {pid}: {ex.Message}");
             }
         }
 
@@ -241,6 +341,11 @@ namespace AppTrace
         public int MaxEventBuffer { get; set; }
 
         public string AppPath { get; set; }
+        public string Target { get; set; }
+        public TimeSpan Timeout { get; set; }
+        public bool AutoClose { get; set; }
+        public string JsonPath { get; set; }
+
         public bool CsvEnabled { get; set; }
         public string CsvPath { get; set; }
 
@@ -251,6 +356,7 @@ namespace AppTrace
             PollInterval = TimeSpan.FromMilliseconds(200);
             MaxEventBuffer = 5000;
             RawArgs = new string[0];
+            Timeout = TimeSpan.FromSeconds(100); // Default timeout
         }
 
         public static TraceOptions Parse(string[] args)
@@ -270,6 +376,31 @@ namespace AppTrace
                     opt.AppPath = TrimQuotes(a.Substring("--app=".Length));
                 else if (a.StartsWith("/app=", StringComparison.OrdinalIgnoreCase))
                     opt.AppPath = TrimQuotes(a.Substring("/app=".Length));
+
+                // target
+                else if (a.StartsWith("--target=", StringComparison.OrdinalIgnoreCase))
+                    opt.Target = TrimQuotes(a.Substring("--target=".Length));
+                else if (a.StartsWith("/target=", StringComparison.OrdinalIgnoreCase))
+                    opt.Target = TrimQuotes(a.Substring("/target=".Length));
+
+                // timeout
+                else if (a.StartsWith("--timeout=", StringComparison.OrdinalIgnoreCase))
+                    opt.Timeout = ParseDurationBestEffort(a.Substring("--timeout=".Length), opt.Timeout);
+                else if (a.StartsWith("/timeout=", StringComparison.OrdinalIgnoreCase))
+                    opt.Timeout = ParseDurationBestEffort(a.Substring("/timeout=".Length), opt.Timeout);
+
+                // close
+                else if (string.Equals(a, "--close", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(a, "/close", StringComparison.OrdinalIgnoreCase))
+                {
+                    opt.AutoClose = true;
+                }
+
+                // json
+                else if (a.StartsWith("--json=", StringComparison.OrdinalIgnoreCase))
+                    opt.JsonPath = TrimQuotes(a.Substring("--json=".Length));
+                else if (a.StartsWith("/json=", StringComparison.OrdinalIgnoreCase))
+                    opt.JsonPath = TrimQuotes(a.Substring("/json=".Length));
 
                 // poll interval
                 else if (a.StartsWith("--poll=", StringComparison.OrdinalIgnoreCase))
