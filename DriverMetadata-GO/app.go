@@ -129,3 +129,7 @@ func (a *App) processSingleCat(path string) sysdriver.DriverInfo {
 	}
 	return info
 }
+
+func (a *App) CopyToClipboard(text string) error {
+	return runtime.ClipboardSetText(a.ctx, text)
+}

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { DriverInfo } from '../types';
 
 // @ts-ignore
-import { ClipboardSetText } from '../../wailsjs/runtime/runtime';
+import { CopyToClipboard } from '../../wailsjs/go/main/App';
 
 interface MetadataViewProps {
     driver: DriverInfo | null;
@@ -50,60 +50,12 @@ const MetadataView: React.FC<MetadataViewProps> = ({ driver }) => {
 
         const text = lines.join('\n');
 
-        // Try Wails Runtime first, fallback to navigator, fallback to legacy
-        let success = false;
-
-        // Method 1: Wails Runtime
         try {
-            if (typeof ClipboardSetText === 'function') {
-                await ClipboardSetText(text);
-                success = true;
-                console.log("Copied via Wails runtime");
-            }
-        } catch (err) {
-            console.warn("Wails clipboard failed:", err);
-        }
-
-        // Method 2: Navigator API
-        if (!success) {
-            try {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    await navigator.clipboard.writeText(text);
-                    success = true;
-                    console.log("Copied via Navigator API");
-                }
-            } catch (err) {
-                console.warn("Navigator clipboard failed:", err);
-            }
-        }
-
-        // Method 3: Legacy textarea hack (last resort)
-        if (!success) {
-            try {
-                const textArea = document.createElement("textarea");
-                textArea.value = text;
-                textArea.style.position = "fixed";  // Avoid scrolling to bottom
-                textArea.style.left = "-9999px";
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                try {
-                    document.execCommand('copy');
-                    success = true;
-                    console.log("Copied via legacy execCommand");
-                } catch (err) {
-                    console.error("Legacy copy failed", err);
-                }
-                document.body.removeChild(textArea);
-            } catch (err) {
-                console.error("DOM manipulation failed", err);
-            }
-        }
-
-        if (success) {
+            await CopyToClipboard(text);
             setCopyFeedback("Copied!");
             setTimeout(() => setCopyFeedback(""), 2000);
-        } else {
+        } catch (err) {
+            console.error("Backend copy failed", err);
             setCopyFeedback("Error");
             setTimeout(() => setCopyFeedback(""), 2000);
         }

@@ -17,3 +17,7 @@ export function ScanFolder() {
 export function ScanFile() {
     return window['go']['main']['App']['ScanFile']();
 }
+
+export function CopyToClipboard(arg1) {
+    return window['go']['main']['App']['CopyToClipboard'](arg1);
+}

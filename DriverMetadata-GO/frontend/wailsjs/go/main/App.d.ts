@@ -8,3 +8,5 @@ export function GetSystemDrivers():Promise<Array<any>>;
 export function ScanFolder():Promise<Array<any>>;
 
 export function ScanFile():Promise<Array<any>>;
+
+export function CopyToClipboard(arg1:string):Promise<void>;
