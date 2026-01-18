@@ -48,6 +48,11 @@ function App() {
         }
     }, [drivers]);
 
+    // Auto-scan on startup
+    useEffect(() => {
+        handleSystemScan();
+    }, []);
+
     const handleSystemScan = async () => {
         setLoading(true);
         setStatus("Scanning system drivers...");
