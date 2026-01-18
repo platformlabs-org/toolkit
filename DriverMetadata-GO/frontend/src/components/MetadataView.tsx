@@ -1,18 +1,93 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { DriverInfo } from '../types';
+
+// @ts-ignore
+import { ClipboardSetText } from '../../wailsjs/runtime/runtime';
 
 interface MetadataViewProps {
     driver: DriverInfo | null;
 }
 
 const MetadataView: React.FC<MetadataViewProps> = ({ driver }) => {
+    const [copyFeedback, setCopyFeedback] = useState("");
+
     if (!driver) {
         return <div style={{ padding: '20px', color: '#666' }}>Select a driver to view details</div>;
     }
 
+    const handleCopy = () => {
+        const lines = [];
+        lines.push(`[DEVICE] ${driver.deviceName}`);
+        lines.push(` ├─ Version: ${driver.version} | Manufacturer: ${driver.manufacturer}`);
+        lines.push(` ├─ Inf Name: ${driver.infName}`);
+        lines.push(` ├─ Catalog: ${driver.catalogPath || 'N/A'}`);
+        lines.push(` ├─ PnP DeviceID: ${driver.pnpDeviceId}`);
+
+        if (driver.displayMatchedHardwareId) {
+             lines.push(` ├─ Matched HWID (DISPLAY): ${driver.displayMatchedHardwareId}`);
+        } else if (driver.rawMatchedHardwareId) {
+             lines.push(` ├─ Matched HWID (RAW): ${driver.rawMatchedHardwareId}`);
+        }
+
+        lines.push(` ├─ HardwareID(s):`);
+        if (driver.hardwareIds && driver.hardwareIds.length > 0) {
+            driver.hardwareIds.forEach(hid => {
+                const matchTag = (hid === driver.rawMatchedHardwareId || hid === driver.displayMatchedHardwareId) ? " [HIT ID]" : "";
+                lines.push(` │   ► ${hid}${matchTag}`);
+            });
+        } else {
+             lines.push(` │   (None)`);
+        }
+
+        if (driver.metadata && Object.keys(driver.metadata).length > 0) {
+             lines.push(` └─ CAT Metadata:`);
+             Object.entries(driver.metadata).forEach(([k, v]) => {
+                 lines.push(`    > ${k.padEnd(22)} : ${v}`);
+             });
+        } else {
+             lines.push(` └─ CAT Metadata: (None)`);
+        }
+
+        const text = lines.join('\n');
+
+        // Use Wails runtime clipboard if available, fallback to navigator
+        try {
+            if (typeof ClipboardSetText === 'function') {
+                ClipboardSetText(text);
+            } else {
+                navigator.clipboard.writeText(text);
+            }
+            setCopyFeedback("Copied!");
+            setTimeout(() => setCopyFeedback(""), 2000);
+        } catch (err) {
+            console.error("Copy failed", err);
+            setCopyFeedback("Error");
+        }
+    };
+
     return (
-        <div style={{ flex: 1, overflow: 'auto', padding: '10px', backgroundColor: '#1e1e1e', color: '#d4d4d4', fontSize: '13px' }}>
-            <h3 style={{ marginTop: 0, borderBottom: '1px solid #333', paddingBottom: '5px', color: '#4ec9b0' }}>{driver.deviceName}</h3>
+        <div style={{ flex: 1, overflow: 'auto', padding: '10px', backgroundColor: '#1e1e1e', color: '#d4d4d4', fontSize: '13px', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333', paddingBottom: '5px', marginBottom: '10px' }}>
+                <h3 style={{ margin: 0, color: '#4ec9b0', fontSize: '16px' }}>{driver.deviceName}</h3>
+                <button
+                    onClick={handleCopy}
+                    style={{
+                        padding: '4px 10px',
+                        backgroundColor: '#2d2d2d',
+                        border: '1px solid #454545',
+                        color: '#ccc',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#3e3e42'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#2d2d2d'}
+                >
+                    Copy All {copyFeedback && <span style={{ color: '#6a9955', marginLeft: '4px' }}>&#10003; {copyFeedback}</span>}
+                </button>
+            </div>
 
             <div style={sectionStyle}>
                 <strong style={headerStyle}>General Info</strong>
