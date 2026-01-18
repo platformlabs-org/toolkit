@@ -23,7 +23,8 @@ type Win32_PnPEntity struct {
 
 func GetLenovoDrivers() ([]DriverInfo, error) {
 	var dst []Win32_PnPSignedDriver
-	q := "SELECT DeviceName, DriverVersion, Manufacturer, InfName, DeviceID, HardWareID FROM Win32_PnPSignedDriver WHERE Manufacturer LIKE '%Lenovo%'"
+	// Removed "WHERE Manufacturer LIKE '%Lenovo%'" to fetch all drivers
+	q := "SELECT DeviceName, DriverVersion, Manufacturer, InfName, DeviceID, HardWareID FROM Win32_PnPSignedDriver"
 
 	err := wmi.Query(q, &dst)
 	if err != nil {
