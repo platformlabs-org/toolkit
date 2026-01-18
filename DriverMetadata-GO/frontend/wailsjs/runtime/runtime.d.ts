@@ -205,3 +205,11 @@ export function Hide(): void;
 // [Show](https://wails.io/docs/reference/runtime/intro#show)
 // Shows the application.
 export function Show(): void;
+
+// [ClipboardSetText](https://wails.io/docs/reference/runtime/clipboard#clipboardsettext)
+// Sets the text content of the clipboard.
+export function ClipboardSetText(text: string): Promise<boolean>;
+
+// [ClipboardGetText](https://wails.io/docs/reference/runtime/clipboard#clipboardgettext)
+// Gets the text content of the clipboard.
+export function ClipboardGetText(): Promise<string>;

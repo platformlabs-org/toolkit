@@ -15,7 +15,7 @@ const MetadataView: React.FC<MetadataViewProps> = ({ driver }) => {
         return <div style={{ padding: '20px', color: '#666' }}>Select a driver to view details</div>;
     }
 
-    const handleCopy = () => {
+    const handleCopy = async () => {
         const lines = [];
         lines.push(`[DEVICE] ${driver.deviceName}`);
         lines.push(` ├─ Version: ${driver.version} | Manufacturer: ${driver.manufacturer}`);
@@ -50,18 +50,62 @@ const MetadataView: React.FC<MetadataViewProps> = ({ driver }) => {
 
         const text = lines.join('\n');
 
-        // Use Wails runtime clipboard if available, fallback to navigator
+        // Try Wails Runtime first, fallback to navigator, fallback to legacy
+        let success = false;
+
+        // Method 1: Wails Runtime
         try {
             if (typeof ClipboardSetText === 'function') {
-                ClipboardSetText(text);
-            } else {
-                navigator.clipboard.writeText(text);
+                await ClipboardSetText(text);
+                success = true;
+                console.log("Copied via Wails runtime");
             }
+        } catch (err) {
+            console.warn("Wails clipboard failed:", err);
+        }
+
+        // Method 2: Navigator API
+        if (!success) {
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                    success = true;
+                    console.log("Copied via Navigator API");
+                }
+            } catch (err) {
+                console.warn("Navigator clipboard failed:", err);
+            }
+        }
+
+        // Method 3: Legacy textarea hack (last resort)
+        if (!success) {
+            try {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";  // Avoid scrolling to bottom
+                textArea.style.left = "-9999px";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    success = true;
+                    console.log("Copied via legacy execCommand");
+                } catch (err) {
+                    console.error("Legacy copy failed", err);
+                }
+                document.body.removeChild(textArea);
+            } catch (err) {
+                console.error("DOM manipulation failed", err);
+            }
+        }
+
+        if (success) {
             setCopyFeedback("Copied!");
             setTimeout(() => setCopyFeedback(""), 2000);
-        } catch (err) {
-            console.error("Copy failed", err);
+        } else {
             setCopyFeedback("Error");
+            setTimeout(() => setCopyFeedback(""), 2000);
         }
     };
 
