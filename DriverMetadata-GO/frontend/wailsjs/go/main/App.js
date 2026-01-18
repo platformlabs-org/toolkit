@@ -5,3 +5,15 @@
 export function Greet(arg1) {
     return window['go']['main']['App']['Greet'](arg1);
 }
+
+export function GetSystemDrivers() {
+    return window['go']['main']['App']['GetSystemDrivers']();
+}
+
+export function ScanFolder() {
+    return window['go']['main']['App']['ScanFolder']();
+}
+
+export function ScanFile() {
+    return window['go']['main']['App']['ScanFile']();
+}
