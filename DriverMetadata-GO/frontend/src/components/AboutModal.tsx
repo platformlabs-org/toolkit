@@ -22,7 +22,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ onClose }) => {
                 backgroundColor: '#252526',
                 border: '1px solid #454545',
                 padding: '20px',
-                width: '300px',
+                width: '450px',
                 textAlign: 'center',
                 boxShadow: '0 4px 20px rgba(0,0,0,0.7)',
                 color: '#d4d4d4'

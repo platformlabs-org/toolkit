@@ -114,7 +114,7 @@ function App() {
 
     return (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: '#1e1e1e', fontFamily: 'Segoe UI, sans-serif' }}>
-            <TitleBar />
+            <TitleBar onAboutClick={() => setShowAbout(true)} />
 
             <div style={{ padding: '8px', backgroundColor: '#2d2d2d', display: 'flex', gap: '10px', alignItems: 'center', borderBottom: '1px solid #1e1e1e' }}>
                 <button style={btnStyle} onClick={handleSystemScan} disabled={loading}>Scan System Drivers</button>
@@ -129,21 +129,7 @@ function App() {
                     onChange={setSelectedVendors}
                 />
 
-                <button
-                    onClick={() => setShowAbout(true)}
-                    style={{
-                        ...btnStyle,
-                        backgroundColor: 'transparent',
-                        color: '#aaa',
-                        marginLeft: 'auto',
-                        padding: '6px'
-                    }}
-                    title="About"
-                >
-                    &#9432;
-                </button>
-
-                <span style={{ color: '#ccc', fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px' }}>
+                <span style={{ marginLeft: 'auto', color: '#ccc', fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px' }}>
                     {loading && <span style={{marginRight: '8px'}}>&#8987;</span>}
                     {status}
                 </span>
