@@ -53,14 +53,21 @@ function App() {
         handleSystemScan();
     }, []);
 
+    // Helper to filter invalid drivers (empty DeviceName)
+    const filterValidDrivers = (list: DriverInfo[]) => {
+        if (!list) return [];
+        return list.filter(d => d.deviceName && d.deviceName.trim() !== "");
+    };
+
     const handleSystemScan = async () => {
         setLoading(true);
         setStatus("Scanning system drivers...");
         try {
             const res = await GetSystemDrivers();
-            setDrivers(res || []);
+            const valid = filterValidDrivers(res);
+            setDrivers(valid);
             setSelected(null);
-            setStatus(`Found ${(res||[]).length} drivers.`);
+            setStatus(`Found ${valid.length} drivers.`);
         } catch (e) {
             setStatus("Error: " + String(e));
         } finally {
@@ -74,9 +81,10 @@ function App() {
         try {
             const res = await ScanFolder();
             if (res) {
-                setDrivers(res);
+                const valid = filterValidDrivers(res);
+                setDrivers(valid);
                 setSelected(null);
-                setStatus(`Found ${(res).length} cat files.`);
+                setStatus(`Found ${valid.length} cat files.`);
             } else {
                 setStatus("Cancelled.");
             }
@@ -93,7 +101,8 @@ function App() {
         try {
             const res = await ScanFile();
             if (res) {
-                setDrivers(res);
+                const valid = filterValidDrivers(res);
+                setDrivers(valid);
                 setSelected(null);
                 setStatus(`Parsed file.`);
             } else {
