@@ -32,20 +32,22 @@ function App() {
 
     return (
         <Layout>
-            <StepIndicator steps={steps} currentStep={step} />
-            <div className="flex-1 overflow-hidden relative h-full">
-                {step === 0 && (
-                    <AuthStep onNext={(t, c) => { setToken(t); setConfig(c); next(); }} />
-                )}
-                {step === 1 && (
-                    <SubmissionStep token={token} onNext={(s) => { setSubmission(s); next(); }} />
-                )}
-                {step === 2 && submission && (
-                    <MetadataStep token={token} submission={submission} onNext={(t) => { setTargets(t); next(); }} />
-                )}
-                {step === 3 && submission && (
-                    <LabelStep token={token} submission={submission} targets={targets} config={config} />
-                )}
+            <div className="z-10 relative flex flex-col h-full">
+                <StepIndicator steps={steps} currentStep={step} />
+                <div className="flex-1 overflow-hidden relative h-full animate-in">
+                    {step === 0 && (
+                        <AuthStep onNext={(t, c) => { setToken(t); setConfig(c); next(); }} />
+                    )}
+                    {step === 1 && (
+                        <SubmissionStep token={token} onNext={(s) => { setSubmission(s); next(); }} />
+                    )}
+                    {step === 2 && submission && (
+                        <MetadataStep token={token} submission={submission} onNext={(t) => { setTargets(t); next(); }} />
+                    )}
+                    {step === 3 && submission && (
+                        <LabelStep token={token} submission={submission} targets={targets} config={config} />
+                    )}
+                </div>
             </div>
         </Layout>
     );
