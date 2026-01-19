@@ -48,7 +48,7 @@ const TitleBar: React.FC<TitleBarProps> = ({ onAboutClick }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontFamily: 'Segoe MDL2 Assets, Segoe UI, sans-serif' // Better font for glyphs
+        fontFamily: 'Segoe MDL2 Assets, sans-serif' // Better font for glyphs
     };
 
     const aboutBtnStyle: React.CSSProperties = {
