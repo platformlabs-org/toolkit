@@ -12,3 +12,11 @@ export interface DriverInfo {
     displayMatchedHardwareId: string;
     metadata: { [key: string]: string };
 }
+
+export type SortKey = 'deviceName' | 'version' | 'displayMatchedHardwareId' | 'infName';
+export type SortDirection = 'asc' | 'desc';
+
+export interface SortConfig {
+    key: SortKey;
+    direction: SortDirection;
+}

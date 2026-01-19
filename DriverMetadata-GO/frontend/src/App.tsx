@@ -1,12 +1,33 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import TitleBar from './components/TitleBar';
 import DriverList from './components/DriverList';
 import MetadataView from './components/MetadataView';
 import VendorFilter from './components/VendorFilter';
 import AboutModal from './components/AboutModal';
-import { DriverInfo } from './types';
+import { DriverInfo, SortConfig, SortKey } from './types';
 // @ts-ignore
 import { GetSystemDrivers, ScanFolder, ScanFile } from '../wailsjs/go/main/App';
+
+const compareVersions = (v1: string, v2: string): number => {
+    if (!v1 && !v2) return 0;
+    if (!v1) return -1;
+    if (!v2) return 1;
+
+    const parts1 = v1.split('.').map(p => parseInt(p, 10));
+    const parts2 = v2.split('.').map(p => parseInt(p, 10));
+
+    const length = Math.max(parts1.length, parts2.length);
+
+    for (let i = 0; i < length; i++) {
+        const num1 = isNaN(parts1[i]) ? 0 : parts1[i];
+        const num2 = isNaN(parts2[i]) ? 0 : parts2[i];
+
+        if (num1 > num2) return 1;
+        if (num1 < num2) return -1;
+    }
+
+    return 0;
+};
 
 function App() {
     const [drivers, setDrivers] = useState<DriverInfo[]>([]);
@@ -14,9 +35,16 @@ function App() {
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState("Ready");
 
+    // Sorting State
+    const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'deviceName', direction: 'asc' });
+
     // Vendor Filter State
     const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
     const [availableVendors, setAvailableVendors] = useState<string[]>([]);
+
+    // Resizer State
+    const [rightPanelWidth, setRightPanelWidth] = useState(450);
+    const [isDragging, setIsDragging] = useState(false);
 
     // About Modal State
     const [showAbout, setShowAbout] = useState(false);
@@ -37,6 +65,93 @@ function App() {
             return selectedVendors.some(v => mfg.includes(v.toLowerCase()));
         });
     }, [drivers, selectedVendors]);
+
+    // Sorting Logic
+    const sortedDrivers = useMemo(() => {
+        const sorted = [...filteredDrivers];
+        sorted.sort((a, b) => {
+            let comparison = 0;
+            if (sortConfig.key === 'version') {
+                comparison = compareVersions(a.version, b.version);
+            } else {
+                const valA = (a[sortConfig.key] || '').toString().toLowerCase();
+                const valB = (b[sortConfig.key] || '').toString().toLowerCase();
+                if (valA > valB) comparison = 1;
+                if (valA < valB) comparison = -1;
+            }
+            return sortConfig.direction === 'asc' ? comparison : -comparison;
+        });
+        return sorted;
+    }, [filteredDrivers, sortConfig]);
+
+    const handleSort = useCallback((key: SortKey) => {
+        setSortConfig(current => ({
+            key,
+            direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+        }));
+    }, []);
+
+    // Global Keyboard Navigation
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (sortedDrivers.length === 0) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const currentIndex = selected ? sortedDrivers.indexOf(selected) : -1;
+                if (currentIndex === -1) {
+                    setSelected(sortedDrivers[0]);
+                } else if (currentIndex < sortedDrivers.length - 1) {
+                    setSelected(sortedDrivers[currentIndex + 1]);
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const currentIndex = selected ? sortedDrivers.indexOf(selected) : -1;
+                if (currentIndex === -1) {
+                    setSelected(sortedDrivers[0]);
+                } else if (currentIndex > 0) {
+                    setSelected(sortedDrivers[currentIndex - 1]);
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [sortedDrivers, selected]);
+
+    // Splitter Drag Logic
+    useEffect(() => {
+        if (!isDragging) return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            const newWidth = window.innerWidth - e.clientX;
+            const minWidth = 200;
+            const maxWidth = window.innerWidth * 0.6; // 60%
+
+            if (newWidth >= minWidth && newWidth <= maxWidth) {
+                setRightPanelWidth(newWidth);
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsDragging(false);
+            document.body.style.cursor = 'default';
+        };
+
+        document.body.style.cursor = 'col-resize';
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = 'default';
+        };
+    }, [isDragging]);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        setIsDragging(true);
+        e.preventDefault();
+    };
 
     // Update Available Vendors & Default Selection
     useEffect(() => {
@@ -150,10 +265,28 @@ function App() {
             </div>
 
             <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                <DriverList drivers={filteredDrivers} selected={selected} onSelect={setSelected} />
+                <DriverList
+                    drivers={sortedDrivers}
+                    selected={selected}
+                    onSelect={setSelected}
+                    sortConfig={sortConfig}
+                    onSort={handleSort}
+                />
+
+                {/* Splitter */}
+                <div
+                    onMouseDown={handleMouseDown}
+                    style={{
+                        width: '4px',
+                        cursor: 'col-resize',
+                        backgroundColor: isDragging ? '#007acc' : '#333',
+                        zIndex: 10,
+                        transition: 'background-color 0.2s'
+                    }}
+                />
 
                 {/* Right Panel for Details */}
-                <div style={{ width: '450px', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #333' }}>
+                <div style={{ width: `${rightPanelWidth}px`, display: 'flex', flexDirection: 'column' }}>
                     <MetadataView driver={selected} />
                 </div>
             </div>

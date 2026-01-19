@@ -1,74 +1,30 @@
-import React, { useState, useMemo } from 'react';
-import { DriverInfo } from '../types';
+import React, { useEffect, useRef } from 'react';
+import { DriverInfo, SortConfig, SortKey } from '../types';
 
 interface DriverListProps {
     drivers: DriverInfo[];
     selected: DriverInfo | null;
     onSelect: (driver: DriverInfo) => void;
+    sortConfig: SortConfig;
+    onSort: (key: SortKey) => void;
 }
 
-type SortKey = 'deviceName' | 'version' | 'displayMatchedHardwareId' | 'infName';
-type SortDirection = 'asc' | 'desc';
+const DriverList: React.FC<DriverListProps> = ({ drivers, selected, onSelect, sortConfig, onSort }) => {
+    const rowRefs = useRef<{ [key: number]: HTMLTableRowElement | null }>({});
 
-interface SortConfig {
-    key: SortKey;
-    direction: SortDirection;
-}
-
-const compareVersions = (v1: string, v2: string): number => {
-    if (!v1 && !v2) return 0;
-    if (!v1) return -1;
-    if (!v2) return 1;
-
-    // Handle standard versions but also be robust against non-numeric parts if any
-    const parts1 = v1.split('.').map(p => parseInt(p, 10));
-    const parts2 = v2.split('.').map(p => parseInt(p, 10));
-
-    const length = Math.max(parts1.length, parts2.length);
-
-    for (let i = 0; i < length; i++) {
-        // Treat missing parts as 0 (e.g. 1.0 == 1.0.0)
-        const num1 = isNaN(parts1[i]) ? 0 : parts1[i];
-        const num2 = isNaN(parts2[i]) ? 0 : parts2[i];
-
-        if (num1 > num2) return 1;
-        if (num1 < num2) return -1;
-    }
-
-    return 0;
-};
-
-const DriverList: React.FC<DriverListProps> = ({ drivers, selected, onSelect }) => {
-    const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'deviceName', direction: 'asc' });
-
-    const sortedDrivers = useMemo(() => {
-        const sorted = [...drivers];
-        sorted.sort((a, b) => {
-            let comparison = 0;
-            if (sortConfig.key === 'version') {
-                comparison = compareVersions(a.version, b.version);
-            } else {
-                const valA = (a[sortConfig.key] || '').toString().toLowerCase();
-                const valB = (b[sortConfig.key] || '').toString().toLowerCase();
-                if (valA > valB) comparison = 1;
-                if (valA < valB) comparison = -1;
+    useEffect(() => {
+        if (selected) {
+            const index = drivers.indexOf(selected);
+            if (index !== -1 && rowRefs.current[index]) {
+                rowRefs.current[index]?.scrollIntoView({ block: 'nearest' });
             }
-            return sortConfig.direction === 'asc' ? comparison : -comparison;
-        });
-        return sorted;
-    }, [drivers, sortConfig]);
-
-    const handleSort = (key: SortKey) => {
-        setSortConfig(current => ({
-            key,
-            direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
-        }));
-    };
+        }
+    }, [selected, drivers]);
 
     const renderHeader = (label: string, key: SortKey) => (
         <th
             style={{ ...thStyle, cursor: 'pointer', userSelect: 'none' }}
-            onClick={() => handleSort(key)}
+            onClick={() => onSort(key)}
         >
             <div style={{ display: 'flex', alignItems: 'center' }}>
                 {label}
@@ -93,9 +49,10 @@ const DriverList: React.FC<DriverListProps> = ({ drivers, selected, onSelect }) 
                     </tr>
                 </thead>
                 <tbody>
-                    {sortedDrivers.map((d, i) => (
+                    {drivers.map((d, i) => (
                         <tr
                             key={i}
+                            ref={el => rowRefs.current[i] = el}
                             onClick={() => onSelect(d)}
                             style={{
                                 backgroundColor: selected === d ? '#37373d' : (i % 2 === 0 ? '#1e1e1e' : '#252526'),
