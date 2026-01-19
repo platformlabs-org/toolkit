@@ -118,7 +118,7 @@ function App() {
     };
 
     return (
-        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: '#1e1e1e', fontFamily: 'Segoe UI, sans-serif' }}>
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: '#1e1e1e' }}>
             <TitleBar onAboutClick={() => setShowAbout(true)} />
 
             <div style={{ padding: '8px', backgroundColor: '#2d2d2d', display: 'flex', gap: '10px', alignItems: 'center', borderBottom: '1px solid #1e1e1e' }}>
