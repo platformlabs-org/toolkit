@@ -9,6 +9,7 @@ import (
 
 	"DriverMetadata-GO/internal/catparser"
 	"DriverMetadata-GO/internal/sysdriver"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -131,5 +132,6 @@ func (a *App) processSingleCat(path string) sysdriver.DriverInfo {
 }
 
 func (a *App) CopyToClipboard(text string) error {
+	text = strings.ReplaceAll(text, "\x00", "")
 	return runtime.ClipboardSetText(a.ctx, text)
 }
