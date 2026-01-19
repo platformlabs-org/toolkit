@@ -4,11 +4,11 @@
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "{{.Info.ProductVersion}}",
-			"CompanyName": "{{.Info.CompanyName}}",
-			"FileDescription": "{{.Info.ProductName}}",
-			"LegalCopyright": "{{.Info.Copyright}}",
-			"ProductName": "{{.Info.ProductName}}",
+			"ProductVersion": "1.0.0",
+			"CompanyName": "Lenovo",
+			"FileDescription": "Lenovo Driver Metadata Tool",
+			"LegalCopyright": "© Lenovo 2026",
+			"ProductName": "Lenovo Driver Metadata Tool",
 			"Comments": "{{.Info.Comments}}"
 		}
 	}
