@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "{{.Info.ProductVersion}}"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "1.0.0",
+			"CompanyName": "Lenovo",
+			"FileDescription": "UnderRun Monitor",
+			"LegalCopyright": "© 2026 Lenovo.",
+			"ProductName": "UnderRun Monitor",
+			"Comments": "{{.Info.Comments}}"
+		}
+	}
+}
