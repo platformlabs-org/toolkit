@@ -4,38 +4,40 @@
 
 @layer base {
   :root {
-    /* Darker, richer background base */
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
+    /* Light Theme Base */
+    --background: 0 0% 100%;       /* White */
+    --foreground: 222.2 84% 4.9%;  /* Dark Blue/Gray Text */
 
-    /* Slightly lighter card background for contrast */
-    --card: 224 71% 7%;
-    --card-foreground: 213 31% 91%;
+    /* Card: White with subtle border/shadow */
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
 
-    --popover: 224 71% 4%;
-    --popover-foreground: 215 20.2% 65.1%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
 
-    /* Cloudflare/Wrangler Orange: #bd5b08 */
-    --primary: 28 92% 39%;
-    --primary-foreground: 210 40% 98%;
+    /* Primary: Keep Orange but adjust slightly for light mode if needed */
+    --primary: 28 92% 39%;         /* #bd5b08 */
+    --primary-foreground: 0 0% 98%; /* White text on primary */
 
-    --secondary: 222.2 47.4% 11.2%;
-    --secondary-foreground: 210 40% 98%;
+    /* Secondary: Light Gray */
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
 
-    --muted: 223 47% 11%;
-    --muted-foreground: 215.4 16.3% 56.9%;
+    /* Muted: Lighter Gray */
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
 
-    --accent: 216 34% 17%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
 
-    --destructive: 0 63% 31%;
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 216 34% 17%;
-    --input: 216 34% 17%;
-    --ring: 28 92% 39%; /* Match primary */
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 28 92% 39%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
   }
 }
 
@@ -47,17 +49,9 @@
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
     overflow: hidden;
-    /* Add a subtle gradient mesh to the body background */
-    background: radial-gradient(circle at 50% 0%, hsl(224, 71%, 12%) 0%, transparent 70%),
-                radial-gradient(circle at 80% 10%, hsla(28, 92%, 39%, 0.05) 0%, transparent 40%),
-                hsl(224, 71%, 4%);
+    /* Subtle light gray gradient for depth, keeping it clean */
+    background: linear-gradient(to bottom right, #ffffff, #f3f4f6);
   }
-}
-
-@layer utilities {
-    .glass {
-        @apply bg-card/60 backdrop-blur-xl border-white/5;
-    }
 }
 
 /* Animations */
@@ -70,7 +64,7 @@
     animation: fadeIn 0.4s ease-out forwards;
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling - Lighter */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -79,9 +73,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted));
+  background: hsl(var(--muted-foreground) / 0.3);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground));
+  background: hsl(var(--muted-foreground) / 0.5);
 }

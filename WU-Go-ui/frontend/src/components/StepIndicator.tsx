@@ -18,9 +18,9 @@ export function StepIndicator({ steps, currentStep }: StepIndicatorProps) {
             <div key={step.id} className="flex items-center">
               <div className={cn(
                 "flex items-center justify-center w-8 h-8 rounded-full border-2 transition-colors",
-                isActive ? "border-primary bg-primary text-primary-foreground shadow-[0_0_10px_rgba(189,91,8,0.5)]" :
+                isActive ? "border-primary bg-primary text-primary-foreground shadow-md" : // Removed neon glow
                 isCompleted ? "border-primary bg-primary text-primary-foreground" :
-                "border-muted bg-muted/20 text-muted-foreground"
+                "border-gray-200 bg-gray-100 text-gray-400"
               )}>
                 {isCompleted ? <Check size={16} /> : <span className="text-xs font-bold">{index + 1}</span>}
               </div>
@@ -33,7 +33,7 @@ export function StepIndicator({ steps, currentStep }: StepIndicatorProps) {
               {index < steps.length - 1 && (
                 <div className={cn(
                   "w-8 md:w-16 h-0.5 mx-2 md:mx-4 transition-colors",
-                  index < currentStep ? "bg-primary" : "bg-muted"
+                  index < currentStep ? "bg-primary" : "bg-gray-200"
                 )} />
               )}
             </div>
