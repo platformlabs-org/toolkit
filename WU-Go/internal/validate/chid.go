@@ -1,9 +1,6 @@
 package validate
 
 import (
-	"bufio"
-	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
@@ -41,26 +38,3 @@ func NormalizeCHIDsRequired(input []string) ([]string, error) {
 	return out, nil
 }
 
-func PromptCHIDsRequired() ([]string, error) {
-	in := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Print("CHIDs（必填，逗号分隔，可多个）: ")
-		raw, _ := in.ReadString('\n')
-		raw = strings.TrimSpace(raw)
-
-		parts := []string{}
-		for _, p := range strings.Split(raw, ",") {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				parts = append(parts, p)
-			}
-		}
-
-		out, err := NormalizeCHIDsRequired(parts)
-		if err != nil {
-			fmt.Println("输入有误：" + err.Error())
-			continue
-		}
-		return out, nil
-	}
-}

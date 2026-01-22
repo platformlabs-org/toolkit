@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"WU/internal/auth"
@@ -185,22 +186,37 @@ func Run(opt *cli.CLIOptions) int {
 	// ---- Step 4: Create Label ----
 	ui.Section(ui.StepCtx{Title: "Create Shipping Label", Current: 4, Total: 4})
 
-	var chids []string
-	if len(opt.Chids) > 0 {
-		chids, err = validate.NormalizeCHIDsRequired(opt.Chids)
-	} else {
-		chids, err = validate.PromptCHIDsRequired()
-	}
-	if err != nil {
-		printErr(err)
-		return exitCode(err)
-	}
-
 	name := opt.Name
 	if support.IsBlank(name) {
 		name = ui.Prompt("Shipping label name", "{OEM Name}: {Project Name}")
 		if name == "{OEM Name}: {Project Name}" {
 			// handled by prompt returning default if user hits enter
+		}
+	}
+
+	var chids []string
+	if len(opt.Chids) > 0 {
+		chids, err = validate.NormalizeCHIDsRequired(opt.Chids)
+		if err != nil {
+			printErr(err)
+			return exitCode(err)
+		}
+	} else {
+		for {
+			raw := ui.Prompt("CHIDs (Required, comma separated)", "")
+			parts := []string{}
+			for _, p := range strings.Split(raw, ",") {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					parts = append(parts, p)
+				}
+			}
+
+			chids, err = validate.NormalizeCHIDsRequired(parts)
+			if err == nil {
+				break
+			}
+			ui.ErrorInside(err.Error())
 		}
 	}
 
