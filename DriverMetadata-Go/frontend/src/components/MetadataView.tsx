@@ -5,7 +5,7 @@ import { DriverInfo } from '../types';
 import { CopyToClipboard } from '../../wailsjs/go/main/App';
 
 interface MetadataViewProps {
-  driver: DriverInfo | null;
+  drivers: DriverInfo[];
 }
 
 const DEBUG_COPY = false; // 需要排查时改成 true
@@ -52,21 +52,21 @@ function buildCopyText(driver: DriverInfo): string {
   return lines.join('\n');
 }
 
-const MetadataView: React.FC<MetadataViewProps> = ({ driver }) => {
+const MetadataView: React.FC<MetadataViewProps> = ({ drivers }) => {
   const [copyFeedback, setCopyFeedback] = useState('');
   const [isCopying, setIsCopying] = useState(false);
   const feedbackTimerRef = useRef<number | null>(null);
 
-  // 切换 driver 时清掉反馈与定时器，避免残留
+  // Clear feedback when selection changes
   useEffect(() => {
     setCopyFeedback('');
     if (feedbackTimerRef.current) {
       window.clearTimeout(feedbackTimerRef.current);
       feedbackTimerRef.current = null;
     }
-  }, [driver?.catalogPath, driver?.deviceName]);
+  }, [drivers]);
 
-  // 组件卸载时清理定时器
+  // Clean up timer on unmount
   useEffect(() => {
     return () => {
       if (feedbackTimerRef.current) {
@@ -76,8 +76,9 @@ const MetadataView: React.FC<MetadataViewProps> = ({ driver }) => {
   }, []);
 
   const copyText = useMemo(() => {
-    return driver ? buildCopyText(driver) : '';
-  }, [driver]);
+    if (drivers.length === 0) return '';
+    return drivers.map(d => buildCopyText(d)).join('\n\n' + '='.repeat(40) + '\n\n');
+  }, [drivers]);
 
   const flashFeedback = useCallback((msg: string, ms = 2000) => {
     setCopyFeedback(msg);
@@ -91,7 +92,7 @@ const MetadataView: React.FC<MetadataViewProps> = ({ driver }) => {
   }, []);
 
   const handleCopy = useCallback(async () => {
-    if (!driver || isCopying) return;
+    if (drivers.length === 0 || isCopying) return;
 
     try {
       setIsCopying(true);
@@ -121,120 +122,207 @@ const MetadataView: React.FC<MetadataViewProps> = ({ driver }) => {
     } finally {
       setIsCopying(false);
     }
-  }, [driver, isCopying, copyText, flashFeedback]);
+  }, [drivers, isCopying, copyText, flashFeedback]);
 
-  if (!driver) {
+  const buttonStyle: React.CSSProperties = {
+    padding: '4px 10px',
+    backgroundColor: isCopying ? '#2a2a2a' : '#2d2d2d',
+    border: '1px solid #454545',
+    color: isCopying ? '#777' : '#ccc',
+    cursor: isCopying ? 'not-allowed' : 'pointer',
+    fontSize: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+  };
+
+  const commonContainerStyle: React.CSSProperties = {
+      flex: 1,
+      overflow: 'auto',
+      padding: '10px',
+      backgroundColor: '#1e1e1e',
+      color: '#d4d4d4',
+      fontSize: '13px',
+      position: 'relative',
+  };
+
+  // Helper to filter metadata for summary view
+  const getFilteredMetadata = (metadata: { [key: string]: string } | undefined) => {
+      if (!metadata) return [];
+      return Object.entries(metadata).filter(([k]) => {
+          // Normalize key: remove spaces and convert to lowercase to handle "Submission ID", "SubmissionID", "Bundle ID", "BundleID"
+          const normalizedKey = k.toLowerCase().replace(/\s+/g, '');
+          return normalizedKey === "bundleid" || normalizedKey === "submissionid";
+      });
+  };
+
+  if (drivers.length === 0) {
     return <div style={{ padding: '20px', color: '#666' }}>Select a driver to view details</div>;
   }
 
-  return (
-    <div
-      style={{
-        flex: 1,
-        overflow: 'auto',
-        padding: '10px',
-        backgroundColor: '#1e1e1e',
-        color: '#d4d4d4',
-        fontSize: '13px',
-        position: 'relative',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          borderBottom: '1px solid #333',
-          paddingBottom: '5px',
-          marginBottom: '10px',
-        }}
-      >
-        <h3 style={{ margin: 0, color: '#4ec9b0', fontSize: '16px' }}>{driver.deviceName}</h3>
-
-        <button
-          onClick={handleCopy}
-          disabled={isCopying}
+  // Single Driver View
+  if (drivers.length === 1) {
+    const driver = drivers[0];
+    return (
+      <div style={commonContainerStyle}>
+        <div
           style={{
-            padding: '4px 10px',
-            backgroundColor: isCopying ? '#2a2a2a' : '#2d2d2d',
-            border: '1px solid #454545',
-            color: isCopying ? '#777' : '#ccc',
-            cursor: isCopying ? 'not-allowed' : 'pointer',
-            fontSize: '12px',
             display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '5px',
+            borderBottom: '1px solid #333',
+            paddingBottom: '5px',
+            marginBottom: '10px',
           }}
-          onMouseEnter={(e) => {
-            if (!isCopying) e.currentTarget.style.backgroundColor = '#3e3e42';
-          }}
-          onMouseLeave={(e) => {
-            if (!isCopying) e.currentTarget.style.backgroundColor = '#2d2d2d';
-          }}
-          title={isCopying ? 'Copying...' : 'Copy all details'}
         >
-          {isCopying ? 'Copying…' : 'Copy All'}
-          {copyFeedback && (
-            <span style={{ color: copyFeedback === 'Error' ? '#f48771' : '#6a9955', marginLeft: '4px' }}>
-              &#10003; {copyFeedback}
-            </span>
+          <h3 style={{ margin: 0, color: '#4ec9b0', fontSize: '16px' }}>{driver.deviceName}</h3>
+
+          <button
+            onClick={handleCopy}
+            disabled={isCopying}
+            style={buttonStyle}
+            onMouseEnter={(e) => {
+              if (!isCopying) e.currentTarget.style.backgroundColor = '#3e3e42';
+            }}
+            onMouseLeave={(e) => {
+              if (!isCopying) e.currentTarget.style.backgroundColor = '#2d2d2d';
+            }}
+            title={isCopying ? 'Copying...' : 'Copy all details'}
+          >
+            {isCopying ? 'Copying…' : 'Copy All'}
+            {copyFeedback && (
+              <span style={{ color: copyFeedback === 'Error' ? '#f48771' : '#6a9955', marginLeft: '4px' }}>
+                &#10003; {copyFeedback}
+              </span>
+            )}
+          </button>
+        </div>
+
+        <div style={sectionStyle}>
+          <strong style={headerStyle}>General Info</strong>
+          <div style={rowStyle}>
+            <span style={labelStyle}>Manufacturer:</span> {driver.manufacturer}
+          </div>
+          <div style={rowStyle}>
+            <span style={labelStyle}>Version:</span> {driver.version}
+          </div>
+          <div style={rowStyle}>
+            <span style={labelStyle}>Inf Name:</span> {driver.infName}
+          </div>
+          <div style={rowStyle}>
+            <span style={labelStyle}>Catalog:</span> {driver.catalogPath || 'N/A'}
+          </div>
+          <div style={rowStyle}>
+            <span style={labelStyle}>PnP Device ID:</span> {driver.pnpDeviceId}
+          </div>
+        </div>
+
+        <div style={sectionStyle}>
+          <strong style={headerStyle}>Hardware IDs</strong>
+          <ul style={{ margin: '5px 0', paddingLeft: '20px', fontFamily: 'monospace' }}>
+            {(driver.hardwareIds ?? []).map((id, i) => {
+              const isMatch = id === driver.rawMatchedHardwareId || id === driver.displayMatchedHardwareId;
+              return (
+                <li key={i} style={{ color: isMatch ? '#ce9178' : 'inherit' }}>
+                  {id}{' '}
+                  {isMatch && <span style={{ fontSize: '0.8em', color: '#6a9955' }}> (Match)</span>}
+                </li>
+              );
+            })}
+            {(!driver.hardwareIds || driver.hardwareIds.length === 0) && <li>(None)</li>}
+          </ul>
+        </div>
+
+        <div style={sectionStyle}>
+          <strong style={headerStyle}>CAT Metadata</strong>{' '}
+          <span style={{ color: '#666' }}>(1.3.6.1.4.1.311.12.2.1)</span>
+          {Object.keys(driver.metadata || {}).length === 0 ? (
+            <div style={{ color: '#888', fontStyle: 'italic', padding: '5px' }}>No metadata found</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '5px' }}>
+              <tbody>
+                {Object.entries(driver.metadata!).map(([k, v], i) => (
+                  <tr key={i}>
+                    <td style={{ ...tdMetaStyle, color: '#569cd6' }}>{k}</td>
+                    <td style={tdMetaStyle}>{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
-        </button>
+        </div>
       </div>
+    );
+  }
 
-      <div style={sectionStyle}>
-        <strong style={headerStyle}>General Info</strong>
-        <div style={rowStyle}>
-          <span style={labelStyle}>Manufacturer:</span> {driver.manufacturer}
+  // Multi Selection Summary View
+  return (
+    <div style={commonContainerStyle}>
+         <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderBottom: '1px solid #333',
+            paddingBottom: '5px',
+            marginBottom: '10px',
+          }}
+        >
+          <h3 style={{ margin: 0, color: '#4ec9b0', fontSize: '16px' }}>{drivers.length} Items Selected</h3>
+          <button
+            onClick={handleCopy}
+            disabled={isCopying}
+            style={buttonStyle}
+            onMouseEnter={(e) => {
+              if (!isCopying) e.currentTarget.style.backgroundColor = '#3e3e42';
+            }}
+            onMouseLeave={(e) => {
+              if (!isCopying) e.currentTarget.style.backgroundColor = '#2d2d2d';
+            }}
+            title={isCopying ? 'Copying...' : 'Copy selected items'}
+          >
+            {isCopying ? 'Copying…' : `Copy ${drivers.length} Items`}
+            {copyFeedback && (
+              <span style={{ color: copyFeedback === 'Error' ? '#f48771' : '#6a9955', marginLeft: '4px' }}>
+                &#10003; {copyFeedback}
+              </span>
+            )}
+          </button>
         </div>
-        <div style={rowStyle}>
-          <span style={labelStyle}>Version:</span> {driver.version}
-        </div>
-        <div style={rowStyle}>
-          <span style={labelStyle}>Inf Name:</span> {driver.infName}
-        </div>
-        <div style={rowStyle}>
-          <span style={labelStyle}>Catalog:</span> {driver.catalogPath || 'N/A'}
-        </div>
-        <div style={rowStyle}>
-          <span style={labelStyle}>PnP Device ID:</span> {driver.pnpDeviceId}
-        </div>
-      </div>
 
-      <div style={sectionStyle}>
-        <strong style={headerStyle}>Hardware IDs</strong>
-        <ul style={{ margin: '5px 0', paddingLeft: '20px', fontFamily: 'monospace' }}>
-          {(driver.hardwareIds ?? []).map((id, i) => {
-            const isMatch = id === driver.rawMatchedHardwareId || id === driver.displayMatchedHardwareId;
-            return (
-              <li key={i} style={{ color: isMatch ? '#ce9178' : 'inherit' }}>
-                {id}{' '}
-                {isMatch && <span style={{ fontSize: '0.8em', color: '#6a9955' }}> (Match)</span>}
-              </li>
-            );
-          })}
-          {(!driver.hardwareIds || driver.hardwareIds.length === 0) && <li>(None)</li>}
-        </ul>
-      </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {drivers.map((d, i) => {
+                const filteredMeta = getFilteredMetadata(d.metadata);
+                return (
+                    <div key={i} style={{ padding: '8px', border: '1px solid #333', backgroundColor: '#252526', borderRadius: '4px' }}>
+                        <div style={{ fontWeight: 'bold', color: '#9cdcfe' }}>{d.deviceName}</div>
+                        <div style={{ marginLeft: '10px', marginTop: '4px', fontSize: '12px', color: '#ccc' }}>
+                            <div>Version: {d.version}</div>
 
-      <div style={sectionStyle}>
-        <strong style={headerStyle}>CAT Metadata</strong>{' '}
-        <span style={{ color: '#666' }}>(1.3.6.1.4.1.311.12.2.1)</span>
-        {Object.keys(driver.metadata || {}).length === 0 ? (
-          <div style={{ color: '#888', fontStyle: 'italic', padding: '5px' }}>No metadata found</div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '5px' }}>
-            <tbody>
-              {Object.entries(driver.metadata!).map(([k, v], i) => (
-                <tr key={i}>
-                  <td style={{ ...tdMetaStyle, color: '#569cd6' }}>{k}</td>
-                  <td style={tdMetaStyle}>{v}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+                            {filteredMeta.length > 0 && (
+                                <div style={{ marginTop: '5px', marginBottom: '5px', padding: '4px', backgroundColor: '#1e1e1e', borderRadius: '3px' }}>
+                                    <div style={{ fontWeight: 'bold', color: '#888' }}>Metadata:</div>
+                                    <div style={{ marginLeft: '10px', fontFamily: 'monospace', fontSize: '11px', color: '#569cd6' }}>
+                                        {filteredMeta.map(([k, v], idx) => (
+                                            <div key={idx}>{k}: {v}</div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div>Hardware IDs:</div>
+                            <ul style={{ margin: '2px 0 0 10px', paddingLeft: '10px', fontFamily: 'monospace', fontSize: '11px', color: '#ce9178' }}>
+                                {(d.hardwareIds || []).slice(0, 3).map((hid, idx) => (
+                                    <li key={idx}>{hid}</li>
+                                ))}
+                                {(d.hardwareIds || []).length > 3 && <li>... ({(d.hardwareIds || []).length - 3} more)</li>}
+                                {(!d.hardwareIds || d.hardwareIds.length === 0) && <li>(None)</li>}
+                            </ul>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
     </div>
   );
 };
