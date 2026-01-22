@@ -1,25 +1,59 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { DriverInfo, SortConfig, SortKey } from '../types';
 
 interface DriverListProps {
     drivers: DriverInfo[];
-    selected: DriverInfo | null;
-    onSelect: (driver: DriverInfo) => void;
+    selectedDrivers: DriverInfo[];
+    onSelectionChange: (drivers: DriverInfo[]) => void;
     sortConfig: SortConfig;
     onSort: (key: SortKey) => void;
 }
 
-const DriverList: React.FC<DriverListProps> = ({ drivers, selected, onSelect, sortConfig, onSort }) => {
+const DriverList: React.FC<DriverListProps> = ({ drivers, selectedDrivers, onSelectionChange, sortConfig, onSort }) => {
     const rowRefs = useRef<{ [key: number]: HTMLTableRowElement | null }>({});
+    const [lastSelectedIndex, setLastSelectedIndex] = useState<number>(-1);
 
     useEffect(() => {
-        if (selected) {
-            const index = drivers.indexOf(selected);
+        // Scroll to single selected item if needed
+        if (selectedDrivers.length === 1) {
+            const index = drivers.indexOf(selectedDrivers[0]);
             if (index !== -1 && rowRefs.current[index]) {
                 rowRefs.current[index]?.scrollIntoView({ block: 'nearest' });
             }
         }
-    }, [selected, drivers]);
+    }, [selectedDrivers, drivers]);
+
+    const handleRowClick = (e: React.MouseEvent, driver: DriverInfo, index: number) => {
+        // Prevent default text selection during shift-click
+        if (e.shiftKey) {
+             document.getSelection()?.removeAllRanges();
+        }
+
+        if (e.ctrlKey || e.metaKey) {
+            // Toggle selection
+            const isSelected = selectedDrivers.includes(driver);
+            let newSelection;
+            if (isSelected) {
+                newSelection = selectedDrivers.filter(d => d !== driver);
+            } else {
+                newSelection = [...selectedDrivers, driver];
+            }
+            onSelectionChange(newSelection);
+            setLastSelectedIndex(index);
+        } else if (e.shiftKey && lastSelectedIndex !== -1) {
+            // Range selection
+            const start = Math.min(lastSelectedIndex, index);
+            const end = Math.max(lastSelectedIndex, index);
+
+            // In Windows/standard lists, Shift+Click selects the range from Anchor to Current, replacing previous selection.
+            const range = drivers.slice(start, end + 1);
+            onSelectionChange(range);
+        } else {
+            // Single selection
+            onSelectionChange([driver]);
+            setLastSelectedIndex(index);
+        }
+    };
 
     const renderHeader = (label: string, key: SortKey) => (
         <th
@@ -49,23 +83,26 @@ const DriverList: React.FC<DriverListProps> = ({ drivers, selected, onSelect, so
                     </tr>
                 </thead>
                 <tbody>
-                    {drivers.map((d, i) => (
-                        <tr
-                            key={i}
-                            ref={el => rowRefs.current[i] = el}
-                            onClick={() => onSelect(d)}
-                            style={{
-                                backgroundColor: selected === d ? '#37373d' : (i % 2 === 0 ? '#1e1e1e' : '#252526'),
-                                cursor: 'pointer',
-                                color: '#d4d4d4'
-                            }}
-                        >
-                            <td style={tdStyle}>{d.deviceName}</td>
-                            <td style={tdStyle}>{d.version || 'N/A'}</td>
-                            <td style={tdStyle}>{d.displayMatchedHardwareId}</td>
-                            <td style={tdStyle}>{d.infName}</td>
-                        </tr>
-                    ))}
+                    {drivers.map((d, i) => {
+                        const isSelected = selectedDrivers.includes(d);
+                        return (
+                            <tr
+                                key={i}
+                                ref={el => rowRefs.current[i] = el}
+                                onClick={(e) => handleRowClick(e, d, i)}
+                                style={{
+                                    backgroundColor: isSelected ? '#37373d' : (i % 2 === 0 ? '#1e1e1e' : '#252526'),
+                                    cursor: 'pointer',
+                                    color: '#d4d4d4'
+                                }}
+                            >
+                                <td style={tdStyle}>{d.deviceName}</td>
+                                <td style={tdStyle}>{d.version || 'N/A'}</td>
+                                <td style={tdStyle}>{d.displayMatchedHardwareId}</td>
+                                <td style={tdStyle}>{d.infName}</td>
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
         </div>

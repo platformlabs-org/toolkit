@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import TitleBar from './components/TitleBar';
 import DriverList from './components/DriverList';
 import MetadataView from './components/MetadataView';
@@ -31,9 +31,17 @@ const compareVersions = (v1: string, v2: string): number => {
 
 function App() {
     const [drivers, setDrivers] = useState<DriverInfo[]>([]);
-    const [selected, setSelected] = useState<DriverInfo | null>(null);
+    const [selectedDrivers, setSelectedDrivers] = useState<DriverInfo[]>([]);
+
+    // loading = show spinner
     const [loading, setLoading] = useState(false);
+    // isBlocking = disable buttons (allow user interaction if false)
+    const [isBlocking, setIsBlocking] = useState(false);
+
     const [status, setStatus] = useState("Ready");
+
+    // Ignore Startup Scan if user initiates other action
+    const ignoreStartupScan = useRef(false);
 
     // Sorting State
     const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'deviceName', direction: 'asc' });
@@ -98,26 +106,30 @@ function App() {
 
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                const currentIndex = selected ? sortedDrivers.indexOf(selected) : -1;
+                const lastSelected = selectedDrivers[selectedDrivers.length - 1];
+                const currentIndex = lastSelected ? sortedDrivers.indexOf(lastSelected) : -1;
+
                 if (currentIndex === -1) {
-                    setSelected(sortedDrivers[0]);
+                    setSelectedDrivers([sortedDrivers[0]]);
                 } else if (currentIndex < sortedDrivers.length - 1) {
-                    setSelected(sortedDrivers[currentIndex + 1]);
+                    setSelectedDrivers([sortedDrivers[currentIndex + 1]]);
                 }
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                const currentIndex = selected ? sortedDrivers.indexOf(selected) : -1;
+                const lastSelected = selectedDrivers[selectedDrivers.length - 1];
+                const currentIndex = lastSelected ? sortedDrivers.indexOf(lastSelected) : -1;
+
                 if (currentIndex === -1) {
-                    setSelected(sortedDrivers[0]);
+                    setSelectedDrivers([sortedDrivers[0]]);
                 } else if (currentIndex > 0) {
-                    setSelected(sortedDrivers[currentIndex - 1]);
+                    setSelectedDrivers([sortedDrivers[currentIndex - 1]]);
                 }
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [sortedDrivers, selected]);
+    }, [sortedDrivers, selectedDrivers]);
 
     // Splitter Drag Logic
     useEffect(() => {
@@ -165,7 +177,7 @@ function App() {
 
     // Auto-scan on startup
     useEffect(() => {
-        handleSystemScan();
+        handleSystemScan(true);
     }, []);
 
     // Helper to filter invalid drivers (empty DeviceName)
@@ -174,31 +186,54 @@ function App() {
         return list.filter(d => d.deviceName && d.deviceName.trim() !== "");
     };
 
-    const handleSystemScan = async () => {
+    const handleSystemScan = async (isStartup = false) => {
+        if (isStartup) {
+             ignoreStartupScan.current = false;
+        } else {
+             ignoreStartupScan.current = true;
+             setIsBlocking(true);
+        }
+
         setLoading(true);
         setStatus("Scanning system drivers...");
         try {
             const res = await GetSystemDrivers();
+
+            // Check if we should ignore this result
+            if (isStartup && ignoreStartupScan.current) {
+                console.log("Startup scan result ignored due to user interruption.");
+                return;
+            }
+
             const valid = filterValidDrivers(res);
             setDrivers(valid);
-            setSelected(null);
+            setSelectedDrivers([]);
             setStatus(`Found ${valid.length} drivers.`);
         } catch (e) {
-            setStatus("Error: " + String(e));
+             if (!isStartup || !ignoreStartupScan.current) {
+                setStatus("Error: " + String(e));
+             }
         } finally {
-            setLoading(false);
+            if (isStartup && ignoreStartupScan.current) {
+                // Do not touch loading state, as another operation is likely in progress
+            } else {
+                setLoading(false);
+                if (!isStartup) setIsBlocking(false);
+            }
         }
     };
 
     const handleFolderScan = async () => {
+        ignoreStartupScan.current = true; // Cancel startup scan interest
         setLoading(true);
+        setIsBlocking(true);
         setStatus("Selecting folder...");
         try {
             const res = await ScanFolder();
             if (res) {
                 const valid = filterValidDrivers(res);
                 setDrivers(valid);
-                setSelected(null);
+                setSelectedDrivers([]);
                 setStatus(`Found ${valid.length} cat files.`);
             } else {
                 setStatus("Cancelled.");
@@ -207,18 +242,21 @@ function App() {
             setStatus("Error: " + String(e));
         } finally {
             setLoading(false);
+            setIsBlocking(false);
         }
     };
 
     const handleFileScan = async () => {
+        ignoreStartupScan.current = true; // Cancel startup scan interest
         setLoading(true);
+        setIsBlocking(true);
         setStatus("Selecting file...");
         try {
             const res = await ScanFile();
             if (res) {
                 const valid = filterValidDrivers(res);
                 setDrivers(valid);
-                setSelected(null);
+                setSelectedDrivers([]);
                 setStatus(`Parsed file.`);
             } else {
                 setStatus("Cancelled.");
@@ -227,6 +265,7 @@ function App() {
             setStatus("Error: " + String(e));
         } finally {
             setLoading(false);
+            setIsBlocking(false);
         }
     };
 
@@ -236,9 +275,9 @@ function App() {
         color: 'white',
         border: 'none',
         borderRadius: '2px',
-        cursor: loading ? 'wait' : 'pointer',
+        cursor: isBlocking ? 'wait' : 'pointer',
         fontSize: '13px',
-        opacity: loading ? 0.7 : 1
+        opacity: isBlocking ? 0.7 : 1
     };
 
     return (
@@ -246,9 +285,9 @@ function App() {
             <TitleBar onAboutClick={() => setShowAbout(true)} />
 
             <div style={{ padding: '8px', backgroundColor: '#2d2d2d', display: 'flex', gap: '10px', alignItems: 'center', borderBottom: '1px solid #1e1e1e' }}>
-                <button style={btnStyle} onClick={handleSystemScan} disabled={loading}>Scan System Drivers</button>
-                <button style={{...btnStyle, backgroundColor: '#3e3e42'}} onClick={handleFolderScan} disabled={loading}>Scan Folder</button>
-                <button style={{...btnStyle, backgroundColor: '#3e3e42'}} onClick={handleFileScan} disabled={loading}>Scan File</button>
+                <button style={btnStyle} onClick={() => handleSystemScan(false)} disabled={isBlocking}>Scan System Drivers</button>
+                <button style={{...btnStyle, backgroundColor: '#3e3e42'}} onClick={handleFolderScan} disabled={isBlocking}>Scan Folder</button>
+                <button style={{...btnStyle, backgroundColor: '#3e3e42'}} onClick={handleFileScan} disabled={isBlocking}>Scan File</button>
 
                 <div style={{ width: '1px', height: '24px', backgroundColor: '#454545', margin: '0 5px' }}></div>
 
@@ -267,8 +306,8 @@ function App() {
             <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
                 <DriverList
                     drivers={sortedDrivers}
-                    selected={selected}
-                    onSelect={setSelected}
+                    selectedDrivers={selectedDrivers}
+                    onSelectionChange={setSelectedDrivers}
                     sortConfig={sortConfig}
                     onSort={handleSort}
                 />
@@ -287,7 +326,7 @@ function App() {
 
                 {/* Right Panel for Details */}
                 <div style={{ width: `${rightPanelWidth}px`, display: 'flex', flexDirection: 'column' }}>
-                    <MetadataView driver={selected} />
+                    <MetadataView drivers={selectedDrivers} />
                 </div>
             </div>
 
