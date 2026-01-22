@@ -150,8 +150,9 @@ const MetadataView: React.FC<MetadataViewProps> = ({ drivers }) => {
   const getFilteredMetadata = (metadata: { [key: string]: string } | undefined) => {
       if (!metadata) return [];
       return Object.entries(metadata).filter(([k]) => {
-          const key = k.toLowerCase();
-          return key.includes("bundleid") || key.includes("submissionid");
+          // Normalize key: remove spaces and convert to lowercase to handle "Submission ID", "SubmissionID", "Bundle ID", "BundleID"
+          const normalizedKey = k.toLowerCase().replace(/\s+/g, '');
+          return normalizedKey === "bundleid" || normalizedKey === "submissionid";
       });
   };
 
