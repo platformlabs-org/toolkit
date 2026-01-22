@@ -33,9 +33,9 @@ function App() {
     const [drivers, setDrivers] = useState<DriverInfo[]>([]);
     const [selectedDrivers, setSelectedDrivers] = useState<DriverInfo[]>([]);
 
-    // loading = show spinner
+    // loading = show spinner, and used to disable System Scan button to avoid re-entry/confusion
     const [loading, setLoading] = useState(false);
-    // isBlocking = disable buttons (allow user interaction if false)
+    // isBlocking = disable manual interaction buttons (allow user interaction if false)
     const [isBlocking, setIsBlocking] = useState(false);
 
     const [status, setStatus] = useState("Ready");
@@ -269,9 +269,10 @@ function App() {
         }
     };
 
-    const btnStyle = {
+    // Style for blocking buttons (Folder/File)
+    const btnBlockingStyle = {
         padding: '6px 12px',
-        backgroundColor: '#007acc',
+        backgroundColor: '#3e3e42',
         color: 'white',
         border: 'none',
         borderRadius: '2px',
@@ -280,14 +281,26 @@ function App() {
         opacity: isBlocking ? 0.7 : 1
     };
 
+    // Style for System Scan button (depends on loading state, not just blocking)
+    const btnSystemStyle = {
+        padding: '6px 12px',
+        backgroundColor: '#007acc',
+        color: 'white',
+        border: 'none',
+        borderRadius: '2px',
+        cursor: loading ? 'wait' : 'pointer',
+        fontSize: '13px',
+        opacity: loading ? 0.7 : 1
+    };
+
     return (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: '#1e1e1e' }}>
             <TitleBar onAboutClick={() => setShowAbout(true)} />
 
             <div style={{ padding: '8px', backgroundColor: '#2d2d2d', display: 'flex', gap: '10px', alignItems: 'center', borderBottom: '1px solid #1e1e1e' }}>
-                <button style={btnStyle} onClick={() => handleSystemScan(false)} disabled={isBlocking}>Scan System Drivers</button>
-                <button style={{...btnStyle, backgroundColor: '#3e3e42'}} onClick={handleFolderScan} disabled={isBlocking}>Scan Folder</button>
-                <button style={{...btnStyle, backgroundColor: '#3e3e42'}} onClick={handleFileScan} disabled={isBlocking}>Scan File</button>
+                <button style={btnSystemStyle} onClick={() => handleSystemScan(false)} disabled={loading}>Scan System Drivers</button>
+                <button style={btnBlockingStyle} onClick={handleFolderScan} disabled={isBlocking}>Scan Folder</button>
+                <button style={btnBlockingStyle} onClick={handleFileScan} disabled={isBlocking}>Scan File</button>
 
                 <div style={{ width: '1px', height: '24px', backgroundColor: '#454545', margin: '0 5px' }}></div>
 

@@ -146,6 +146,15 @@ const MetadataView: React.FC<MetadataViewProps> = ({ drivers }) => {
       position: 'relative',
   };
 
+  // Helper to filter metadata for summary view
+  const getFilteredMetadata = (metadata: { [key: string]: string } | undefined) => {
+      if (!metadata) return [];
+      return Object.entries(metadata).filter(([k]) => {
+          const key = k.toLowerCase();
+          return key.includes("bundleid") || key.includes("submissionid");
+      });
+  };
+
   if (drivers.length === 0) {
     return <div style={{ padding: '20px', color: '#666' }}>Select a driver to view details</div>;
   }
@@ -281,34 +290,37 @@ const MetadataView: React.FC<MetadataViewProps> = ({ drivers }) => {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {drivers.map((d, i) => (
-                <div key={i} style={{ padding: '8px', border: '1px solid #333', backgroundColor: '#252526', borderRadius: '4px' }}>
-                    <div style={{ fontWeight: 'bold', color: '#9cdcfe' }}>{d.deviceName}</div>
-                    <div style={{ marginLeft: '10px', marginTop: '4px', fontSize: '12px', color: '#ccc' }}>
-                        <div>Version: {d.version}</div>
+            {drivers.map((d, i) => {
+                const filteredMeta = getFilteredMetadata(d.metadata);
+                return (
+                    <div key={i} style={{ padding: '8px', border: '1px solid #333', backgroundColor: '#252526', borderRadius: '4px' }}>
+                        <div style={{ fontWeight: 'bold', color: '#9cdcfe' }}>{d.deviceName}</div>
+                        <div style={{ marginLeft: '10px', marginTop: '4px', fontSize: '12px', color: '#ccc' }}>
+                            <div>Version: {d.version}</div>
 
-                        {d.metadata && Object.keys(d.metadata).length > 0 && (
-                            <div style={{ marginTop: '5px', marginBottom: '5px', padding: '4px', backgroundColor: '#1e1e1e', borderRadius: '3px' }}>
-                                <div style={{ fontWeight: 'bold', color: '#888' }}>Metadata:</div>
-                                <div style={{ marginLeft: '10px', fontFamily: 'monospace', fontSize: '11px', color: '#569cd6' }}>
-                                    {Object.entries(d.metadata).map(([k, v], idx) => (
-                                        <div key={idx}>{k}: {v}</div>
-                                    ))}
+                            {filteredMeta.length > 0 && (
+                                <div style={{ marginTop: '5px', marginBottom: '5px', padding: '4px', backgroundColor: '#1e1e1e', borderRadius: '3px' }}>
+                                    <div style={{ fontWeight: 'bold', color: '#888' }}>Metadata:</div>
+                                    <div style={{ marginLeft: '10px', fontFamily: 'monospace', fontSize: '11px', color: '#569cd6' }}>
+                                        {filteredMeta.map(([k, v], idx) => (
+                                            <div key={idx}>{k}: {v}</div>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
-                        <div>Hardware IDs:</div>
-                        <ul style={{ margin: '2px 0 0 10px', paddingLeft: '10px', fontFamily: 'monospace', fontSize: '11px', color: '#ce9178' }}>
-                            {(d.hardwareIds || []).slice(0, 3).map((hid, idx) => (
-                                <li key={idx}>{hid}</li>
-                            ))}
-                            {(d.hardwareIds || []).length > 3 && <li>... ({(d.hardwareIds || []).length - 3} more)</li>}
-                            {(!d.hardwareIds || d.hardwareIds.length === 0) && <li>(None)</li>}
-                        </ul>
+                            <div>Hardware IDs:</div>
+                            <ul style={{ margin: '2px 0 0 10px', paddingLeft: '10px', fontFamily: 'monospace', fontSize: '11px', color: '#ce9178' }}>
+                                {(d.hardwareIds || []).slice(0, 3).map((hid, idx) => (
+                                    <li key={idx}>{hid}</li>
+                                ))}
+                                {(d.hardwareIds || []).length > 3 && <li>... ({(d.hardwareIds || []).length - 3} more)</li>}
+                                {(!d.hardwareIds || d.hardwareIds.length === 0) && <li>(None)</li>}
+                            </ul>
+                        </div>
                     </div>
-                </div>
-            ))}
+                );
+            })}
         </div>
     </div>
   );
