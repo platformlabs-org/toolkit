@@ -90,6 +90,10 @@ func Fail(msg string) {
 	fmt.Printf("%s %s\n", red("❌"), msg)
 }
 
+func ErrorInside(msg string) {
+	fmt.Printf("%s %s %s\n", gray("│"), red("❌"), msg)
+}
+
 // Spinner runs a task with a spinner
 func Spin(label string, task func() error) error {
 	s := spinner.New(spinner.CharSets[14], 100*time.Millisecond) // Dots
