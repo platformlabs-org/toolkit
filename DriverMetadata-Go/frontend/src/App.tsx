@@ -33,15 +33,20 @@ function App() {
     const [drivers, setDrivers] = useState<DriverInfo[]>([]);
     const [selectedDrivers, setSelectedDrivers] = useState<DriverInfo[]>([]);
 
-    // loading = show spinner, and used to disable System Scan button to avoid re-entry/confusion
+    // loading = show spinner
+    // For System Scan: loading disables the System Scan button but NOT Folder/File buttons
+    // For Folder/File Scan: loading + isBlocking disables ALL buttons
     const [loading, setLoading] = useState(false);
+
     // isBlocking = disable manual interaction buttons (allow user interaction if false)
+    // Only set to true for blocking operations (Scan Folder, Scan File)
     const [isBlocking, setIsBlocking] = useState(false);
 
     const [status, setStatus] = useState("Ready");
 
-    // Ignore Startup Scan if user initiates other action
-    const ignoreStartupScan = useRef(false);
+    // Ignore System Scan result if user initiates other action (Folder/File scan)
+    // Used for both Startup and Manual System Scan because System Scan is non-blocking
+    const ignoreSystemScan = useRef(false);
 
     // Sorting State
     const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'deviceName', direction: 'asc' });
@@ -187,21 +192,22 @@ function App() {
     };
 
     const handleSystemScan = async (isStartup = false) => {
-        if (isStartup) {
-             ignoreStartupScan.current = false;
-        } else {
-             ignoreStartupScan.current = true;
-             setIsBlocking(true);
-        }
+        // Unify logic: System Scan is ALWAYS non-blocking to Folder/File buttons.
+        // It only "blocks" itself (via loading state on button).
+
+        ignoreSystemScan.current = false;
+
+        // Do NOT set isBlocking = true here.
+        // System scan runs in background from UI perspective.
 
         setLoading(true);
         setStatus("Scanning system drivers...");
         try {
             const res = await GetSystemDrivers();
 
-            // Check if we should ignore this result
-            if (isStartup && ignoreStartupScan.current) {
-                console.log("Startup scan result ignored due to user interruption.");
+            // Check if we should ignore this result (because user clicked Folder/File meanwhile)
+            if (ignoreSystemScan.current) {
+                console.log("System scan result ignored due to user interruption.");
                 return;
             }
 
@@ -210,23 +216,23 @@ function App() {
             setSelectedDrivers([]);
             setStatus(`Found ${valid.length} drivers.`);
         } catch (e) {
-             if (!isStartup || !ignoreStartupScan.current) {
+             if (!ignoreSystemScan.current) {
                 setStatus("Error: " + String(e));
              }
         } finally {
-            if (isStartup && ignoreStartupScan.current) {
+            if (ignoreSystemScan.current) {
                 // Do not touch loading state, as another operation is likely in progress
             } else {
                 setLoading(false);
-                if (!isStartup) setIsBlocking(false);
+                // No need to reset isBlocking, we didn't set it.
             }
         }
     };
 
     const handleFolderScan = async () => {
-        ignoreStartupScan.current = true; // Cancel startup scan interest
+        ignoreSystemScan.current = true; // Cancel any running system scan
         setLoading(true);
-        setIsBlocking(true);
+        setIsBlocking(true); // This blocks ALL buttons
         setStatus("Selecting folder...");
         try {
             const res = await ScanFolder();
@@ -247,9 +253,9 @@ function App() {
     };
 
     const handleFileScan = async () => {
-        ignoreStartupScan.current = true; // Cancel startup scan interest
+        ignoreSystemScan.current = true; // Cancel any running system scan
         setLoading(true);
-        setIsBlocking(true);
+        setIsBlocking(true); // This blocks ALL buttons
         setStatus("Selecting file...");
         try {
             const res = await ScanFile();
@@ -282,15 +288,18 @@ function App() {
     };
 
     // Style for System Scan button (depends on loading state, not just blocking)
+    // If global blocking is active (Folder/File scan), this should also be disabled.
+    // If only loading (System Scan), this is disabled to prevent re-entry.
+    const isSystemBtnDisabled = loading || isBlocking;
     const btnSystemStyle = {
         padding: '6px 12px',
         backgroundColor: '#007acc',
         color: 'white',
         border: 'none',
         borderRadius: '2px',
-        cursor: loading ? 'wait' : 'pointer',
+        cursor: isSystemBtnDisabled ? 'wait' : 'pointer',
         fontSize: '13px',
-        opacity: loading ? 0.7 : 1
+        opacity: isSystemBtnDisabled ? 0.7 : 1
     };
 
     return (
@@ -298,7 +307,7 @@ function App() {
             <TitleBar onAboutClick={() => setShowAbout(true)} />
 
             <div style={{ padding: '8px', backgroundColor: '#2d2d2d', display: 'flex', gap: '10px', alignItems: 'center', borderBottom: '1px solid #1e1e1e' }}>
-                <button style={btnSystemStyle} onClick={() => handleSystemScan(false)} disabled={loading}>Scan System Drivers</button>
+                <button style={btnSystemStyle} onClick={() => handleSystemScan(false)} disabled={isSystemBtnDisabled}>Scan System Drivers</button>
                 <button style={btnBlockingStyle} onClick={handleFolderScan} disabled={isBlocking}>Scan Folder</button>
                 <button style={btnBlockingStyle} onClick={handleFileScan} disabled={isBlocking}>Scan File</button>
 
