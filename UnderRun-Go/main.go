@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	stdruntime "runtime"
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2"
@@ -30,11 +31,15 @@ func main() {
 
 	// System Tray logic in a goroutine
 	go func() {
+		stdruntime.LockOSThread()
 		systray.Run(func() {
 			tray.Setup(
 				iconBytes,
-				func() { tray.DefaultOnShow(app.ctx) },
-				func() { tray.DefaultOnQuit(app.ctx, func() { app.isQuitting = true }) },
+				func() { go tray.DefaultOnShow(app.ctx) },
+				func() {
+					// Async quit handling to avoid blocking tray loop
+					go tray.DefaultOnQuit(app.ctx, func() { app.isQuitting.Store(true) })
+				},
 			)
 		}, func() {
 			// Cleanup if needed
@@ -55,7 +60,7 @@ func main() {
 			systray.Quit()
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
-			if app.isQuitting {
+			if app.isQuitting.Load() {
 				return false
 			}
 			if app.settings.CloseToTray {
