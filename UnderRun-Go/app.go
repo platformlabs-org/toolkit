@@ -16,7 +16,7 @@ type App struct {
 
 	running     atomic.Bool
 	settings    settings.Settings
-	isQuitting  bool
+	isQuitting  atomic.Bool
 }
 
 func NewApp() *App {
