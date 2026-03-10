@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "UnderRun (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "UnderRun (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
