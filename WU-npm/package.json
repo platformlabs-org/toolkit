@@ -1,0 +1,27 @@
+{
+  "name": "wu-cli",
+  "version": "1.0.0",
+  "description": "CLI to create Windows Update Shipping Labels via Microsoft Hardware Dev Center API",
+  "type": "module",
+  "bin": { "wu": "dist/index.js" },
+  "files": ["dist"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@clack/core": "^0.3.4",
+    "@clack/prompts": "^0.7.0",
+    "picocolors": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsup": "^8.1.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
