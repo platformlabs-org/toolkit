@@ -10,7 +10,9 @@ export function initState(count: number): SelectState {
 }
 
 export function viewHeight(termHeight: number, legendCount: number): number {
-  let viewH = termHeight - 6
+  let h = termHeight
+  if (h < 12) h = 12
+  let viewH = h - 6
   if (legendCount <= 1) viewH += 1
   if (viewH < 3) viewH = 3
   return viewH

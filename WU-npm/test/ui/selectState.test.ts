@@ -3,10 +3,11 @@ import { initState, viewHeight, moveCursor, jumpTo, toggle, selectAll, selectNon
 
 describe('selectState', () => {
   it('viewHeight follows Go formula', () => {
-    // height-6, +1 when legendCount<=1, min 3
+    // height-6, +1 when legendCount<=1, min 3; termHeight clamps to min 12
     expect(viewHeight(20, 2)).toBe(14)
     expect(viewHeight(20, 1)).toBe(15)
-    expect(viewHeight(5, 1)).toBe(3)
+    expect(viewHeight(5, 1)).toBe(7)
+    expect(viewHeight(1, 2)).toBe(6)
   })
   it('moveCursor clamps and scrolls', () => {
     let s = initState(100)
