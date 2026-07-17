@@ -37,7 +37,7 @@ export function section(title: string, current: number, total: number): void {
 
 export function item(label: string, value?: string): void {
   console.log(`${gray('├')} ${label}`)
-  if (value !== undefined) console.log(`${gray('│')} ${gray('dir')} ${value}`)
+  if (value !== undefined) console.log(`${gray('│')} ${value}`)
   console.log(gray('│'))
 }
 
