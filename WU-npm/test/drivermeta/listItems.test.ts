@@ -23,7 +23,22 @@ describe('buildListItems', () => {
   it('omits extra when manufacturer and description blank', () => {
     const [item] = buildListItems([{ ...t, manufacturer: '', deviceDescription: '' }], ui, 200)
     expect(item.text).not.toContain('|  |')
-    expect(item.text.trim().endsWith('PNP'.padEnd(28))).toBe(false) // sanity: text present (trim removes trailing spaces from fit())
     expect(item.text).toContain('PNP')
+    // no extra segment: exactly 3 pipe-delimited columns (tag+inf | os | pnp), no 4th
+    const parts = item.text.split(' | ')
+    expect(parts).toHaveLength(3)
+  })
+
+  it('shrinks columns when width is small', () => {
+    const long: HardwareTarget = {
+      bundleId: 'b', bundleTag: 'B1',
+      infId: 'i'.repeat(40), osCode: 'o'.repeat(40), pnpId: 'p'.repeat(40),
+      manufacturer: '', deviceDescription: '',
+    }
+    const [item] = buildListItems([long], ui, 55)
+    const cols = item.text.split(' | ')
+    // cols[0] = 'B1  ' + fitted inf (infW=27), cols[1] = fitted os (18), cols[2] = fitted pnp (18)
+    expect(cols[1].length).toBe(18)
+    expect(cols[2].length).toBe(18)
   })
 })
