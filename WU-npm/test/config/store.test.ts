@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_CONFIG, loadConfig, saveConfig } from '../../src/config/store.js'
@@ -31,5 +31,10 @@ describe('config store', () => {
     const cfg = { ...DEFAULT_CONFIG, msContact: 'x@y.com' }
     saveConfig(cfg, p)
     expect(loadConfig(p).msContact).toBe('x@y.com')
+  })
+  it('missing file is created on disk after loadConfig', () => {
+    const p = tmpFile()
+    loadConfig(p)
+    expect(existsSync(p)).toBe(true)
   })
 })

@@ -40,7 +40,11 @@ export const DEFAULT_CONFIG: WuConfig = {
 
 export function loadConfig(path: string = configPath()): WuConfig {
   if (!existsSync(path)) {
-    saveConfig(DEFAULT_CONFIG, path)
+    try {
+      saveConfig(DEFAULT_CONFIG, path)
+    } catch {
+      // best-effort persistence; ignore write errors
+    }
     return { ...DEFAULT_CONFIG }
   }
   try {
