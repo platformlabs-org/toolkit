@@ -23,7 +23,19 @@ function truncate(s: string, width: number): string {
   return r.slice(0, width - 1).join('')
 }
 
-function render(title: string, legends: Legend[], items: ListItem[], s: SelectState): void {
+function padTo(s: string, width: number): string {
+  const len = [...s].length
+  return len >= width ? s : s + ' '.repeat(width - len)
+}
+
+// Build the frame (array of ANSI lines) for the current state. Pure w.r.t. terminal I/O so it
+// can be rendered to stdout or captured (e.g. for snapshots/screenshots).
+export function buildFrame(
+  title: string,
+  legends: Legend[],
+  items: ListItem[],
+  s: SelectState,
+): string[] {
   const { width, height } = termSize()
   const w = Math.max(width, 60)
   const h = Math.max(height, 12)
@@ -53,16 +65,24 @@ function render(title: string, legends: Legend[], items: ListItem[], s: SelectSt
     const mark = s.selected.has(idx) ? '[x]' : '[ ]'
     const prefix = `${mark} ${String(idx + 1).padStart(5)} `
     const lineText = truncate(prefix + it.text, w)
-    const colored = COLOR_FN[it.color % COLOR_FN.length](lineText)
-    if (idx === s.cursor) out.push(pc.inverse(colored))
-    else out.push(colored)
+    const color = COLOR_FN[it.color % COLOR_FN.length]
+    if (idx === s.cursor) {
+      // Full-width highlight bar: pad to terminal width before inverting so the cursor row
+      // reads as a solid bar (matches the Go TUI's padRightRunes behaviour), not ragged text.
+      out.push(pc.inverse(color(padTo(lineText, w))))
+    } else {
+      out.push(color(lineText))
+    }
   }
 
   out.push('-'.repeat(Math.min(w, 120)))
   out.push(`已选 ${s.selected.size}/${items.length} | 当前 ${s.cursor + 1}/${items.length}`)
+  return out
+}
 
+function render(title: string, legends: Legend[], items: ListItem[], s: SelectState): void {
   // Clear screen and redraw
-  process.stdout.write('\x1b[2J\x1b[H' + out.join('\n') + '\n')
+  process.stdout.write('\x1b[2J\x1b[H' + buildFrame(title, legends, items, s).join('\n') + '\n')
 }
 
 export function runMultiSelectLegend(
@@ -74,11 +94,16 @@ export function runMultiSelectLegend(
 
   return new Promise<number[]>((resolve, reject) => {
     let s = initState(items.length)
-    const { height } = termSize()
-    const viewH = viewHeight(Math.max(height, 12), legends.length)
 
     process.stdout.write('\x1b[?25l') // hide cursor
     const cleanup = emitKeypress((key) => {
+      if (key.ctrl && key.name === 'c') {
+        finish()
+        return reject(new CanceledError())
+      }
+      // Recompute viewH from the live terminal each keypress (matches the Go per-draw model, so
+      // the scroll math and the rendered window height stay consistent even across a resize).
+      const viewH = viewHeight(termSize().height, legends.length)
       switch (key.name) {
         case 'up': s = moveCursor(s, -1, viewH); break
         case 'down': s = moveCursor(s, 1, viewH); break

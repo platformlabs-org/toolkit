@@ -213,7 +213,7 @@ async function promptChidsLoop(): Promise<string[]> {
     try {
       return normalizeCHIDsRequired(parts)
     } catch (e) {
-      ui.errorInside((e as Error).message)
+      ui.errorInside(e instanceof Error ? e.message : String(e))
     }
   }
 }
