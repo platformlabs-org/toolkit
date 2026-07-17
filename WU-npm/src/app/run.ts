@@ -18,6 +18,7 @@ import { termSize } from '../support/terminal.js'
 import { runMultiSelectLegend, type Legend } from '../ui/multiselect.js'
 import { promptIndexSelection } from '../ui/fallbackSelect.js'
 import * as ui from '../ui/index.js'
+import { VERSION } from '../version.js'
 
 const PARTNER =
   'https://partner.microsoft.com/en-us/dashboard/hardware/driver/%p/submission/%s/ShippingLabel/%d'
@@ -26,7 +27,7 @@ export async function run(argv: string[]): Promise<number> {
   const config = loadConfig()
   const opt = assembleOptions(config, argv)
 
-  ui.banner('WU', '1.0.0')
+  ui.banner('WU', VERSION)
   ui.endLine('Start')
 
   const controller = new AbortController()
