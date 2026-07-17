@@ -10,7 +10,7 @@ import { getSubmission, findDriverMetadataURL, printWorkflowStatus } from '../de
 import { downloadDriverMetadata } from '../devcenter/metadata.js'
 import { createShippingLabel } from '../devcenter/shippingLabel.js'
 import { parse } from '../drivermeta/parse.js'
-import type { HardwareTarget, ParseResult, BundleLegend } from '../drivermeta/types.js'
+import type { HardwareTarget, ParseResult } from '../drivermeta/types.js'
 import { buildListItems } from '../drivermeta/listItems.js'
 import { normalizeCHIDsRequired } from '../validate/chid.js'
 import { buildPayload } from '../shippinglabel/payload.js'
@@ -29,11 +29,16 @@ export async function run(argv: string[]): Promise<number> {
   ui.banner('WU', '1.0.0')
   ui.endLine('Start')
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 180_000)
+  timeout.unref?.()   // MUST unref so a completed run doesn't keep the event loop alive (index.ts uses process.exitCode, not process.exit)
+
   try {
     // Step 1: Auth
     ui.section('Initialize', 1, 4)
     ui.item('Loading credentials', 'credential.enc')
     const cred = loadCredential()
+    // Stored credential wins over CLI flags for tenant/client/secret (matches Go FirstNonEmpty(cred, opt) order).
     opt.tenantId = firstNonEmpty(cred.tenantId, opt.tenantId)
     opt.clientId = firstNonEmpty(cred.clientId, opt.clientId)
     opt.clientSecret = firstNonEmpty(cred.clientSecret, opt.clientSecret)
@@ -45,7 +50,7 @@ export async function run(argv: string[]): Promise<number> {
     saveCredential({ tenantId: opt.tenantId, clientId: opt.clientId, clientSecret: opt.clientSecret })
 
     const token = await ui.spin('Acquiring token...', () =>
-      acquireToken(opt.tenantId, opt.clientId, opt.clientSecret),
+      acquireToken(opt.tenantId, opt.clientId, opt.clientSecret, { signal: controller.signal }),
     )
     ui.ok('Token acquired')
 
@@ -75,7 +80,7 @@ export async function run(argv: string[]): Promise<number> {
     }
 
     const submission = await ui.spin('Fetching submission...', () =>
-      getSubmission(token, opt.productId, opt.submissionId),
+      getSubmission(token, opt.productId, opt.submissionId, { signal: controller.signal }),
     )
     ui.ok('Submission fetched')
     printWorkflowStatus(submission)
@@ -84,7 +89,7 @@ export async function run(argv: string[]): Promise<number> {
     ui.section('Metadata Analysis', 3, 4)
     const url = await ui.spin('Resolving metadata URL...', async () => findDriverMetadataURL(submission))
     const metaRoot = await ui.spin('Downloading driverMetadata...', () =>
-      downloadDriverMetadata(token, url),
+      downloadDriverMetadata(token, url, { signal: controller.signal }),
     )
     const parsed = await ui.spin('Parsing candidates...', async () => parse(metaRoot))
     ui.ok(`Metadata OK: candidates=${parsed.targets.length}`)
@@ -99,7 +104,7 @@ export async function run(argv: string[]): Promise<number> {
       ui.fail('No hardwareIds selected')
       return 1
     }
-    ui.ok(`Selected ${selected.length} hardwareIds`)
+    if (!opt.selectAll) ui.ok(`Selected ${selected.length} hardwareIds`)
     ui.endLine('Selected')
 
     // Step 4: Create
@@ -125,7 +130,7 @@ export async function run(argv: string[]): Promise<number> {
     }
 
     const resp = await ui.spin('Creating shipping label...', () =>
-      createShippingLabel(token, opt.productId, opt.submissionId, bodyObj),
+      createShippingLabel(token, opt.productId, opt.submissionId, bodyObj, { signal: controller.signal }),
     )
     if (typeof resp.id === 'number' || typeof resp.id === 'string') {
       const shippingURL = PARTNER.replace('%p', opt.productId)
@@ -140,12 +145,14 @@ export async function run(argv: string[]): Promise<number> {
     await ui.prompt('Press Enter to exit', '')
     return 0
   } catch (e) {
-    if (isCanceled(e)) {
+    if (isCanceled(e) || (e as { name?: string })?.name === 'AbortError') {
       ui.fail('User canceled or timeout.')
       return 130
     }
-    process.stderr.write((e as Error).message + '\n')
+    process.stderr.write((e instanceof Error ? e.message : String(e)) + '\n')
     return 1
+  } finally {
+    clearTimeout(timeout)
   }
 }
 

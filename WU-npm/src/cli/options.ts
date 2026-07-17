@@ -35,7 +35,7 @@ export interface CLIOptions {
 }
 
 function parseIntStrict(s: string): number {
-  if (!/^[+-]?\d+$/.test(s.trim())) throw new APIError('--visible-to-accounts requires integer, got: ' + s)
+  if (!/^[+-]?\d+$/.test(s.trim())) throw new APIError('--visible-to-accounts 需要整数，但输入为: ' + s)
   return parseInt(s, 10)
 }
 
