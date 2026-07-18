@@ -3,7 +3,6 @@ import { dirname } from 'node:path'
 import { configPath } from './paths.js'
 
 export interface WuConfig {
-  msContact: string
   validationsPerformed: string
   affectedOems: string[]
   businessJustification: string
@@ -21,7 +20,6 @@ export interface WuConfig {
 }
 
 export const DEFAULT_CONFIG: WuConfig = {
-  msContact: 'feizh@microsoft.com',
   validationsPerformed: 'Product assurance team full range tested',
   affectedOems: ['N/A'],
   businessJustification: 'to meet MDA requirements',

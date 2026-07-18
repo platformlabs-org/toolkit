@@ -16,13 +16,13 @@ describe('buildPayload', () => {
     expect(() => buildPayload(opt, 'n', [target], [])).toThrow(APIError)
   })
   it('builds structure with defaults (auto-install true → approval block)', () => {
-    const opt = assembleOptions(DEFAULT_CONFIG, [])
+    const opt = assembleOptions(DEFAULT_CONFIG, ['--ms-contact', 'contact@corp.com'])
     const p = buildPayload(opt, 'MyLabel', [target], ['chid-1'])
     expect(p.name).toBe('MyLabel')
     expect(p.destination).toBe('windowsUpdate')
     expect(p.publishingSpecifications.goLiveDate).toBe('')
     expect(p.publishingSpecifications.manualAcquisition).toBe(false)
-    expect(p.publishingSpecifications.additionalInfoForMsApproval.microsoftContact).toBe(DEFAULT_CONFIG.msContact)
+    expect(p.publishingSpecifications.additionalInfoForMsApproval.microsoftContact).toBe('contact@corp.com')
     expect(p.targeting.hardwareIds).toEqual([
       { bundleId: 'b', infId: 'inf', operatingSystemCode: 'OS', pnpString: 'PNP' },
     ])

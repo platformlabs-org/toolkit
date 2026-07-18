@@ -7,9 +7,10 @@ export interface Credential {
   tenantId: string
   clientId: string
   clientSecret: string
+  msContact: string
 }
 
-const EMPTY: Credential = { tenantId: '', clientId: '', clientSecret: '' }
+const EMPTY: Credential = { tenantId: '', clientId: '', clientSecret: '', msContact: '' }
 
 export function loadCredential(
   path: string = credentialPath(),
@@ -24,6 +25,7 @@ export function loadCredential(
       tenantId: obj.tenantId ?? '',
       clientId: obj.clientId ?? '',
       clientSecret: obj.clientSecret ?? '',
+      msContact: obj.msContact ?? '',
     }
   } catch {
     return { ...EMPTY }

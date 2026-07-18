@@ -44,11 +44,21 @@ export async function run(argv: string[]): Promise<number> {
     opt.clientId = firstNonEmpty(cred.clientId, opt.clientId)
     opt.clientSecret = firstNonEmpty(cred.clientSecret, opt.clientSecret)
 
+    // msContact is stored with the credential (not hardcoded). CLI --ms-contact overrides the
+    // stored value; if neither is set, prompt for it on first run alongside the credential.
+    opt.msContact = firstNonEmpty(opt.msContact, cred.msContact)
+
     if (isBlank(opt.tenantId)) opt.tenantId = await ui.prompt('tenant_id', '')
     if (isBlank(opt.clientId)) opt.clientId = await ui.prompt('client_id', '')
     if (isBlank(opt.clientSecret)) opt.clientSecret = await ui.promptSecret('client_secret')
+    if (isBlank(opt.msContact)) opt.msContact = await ui.prompt('ms_contact (Microsoft approval contact)', '')
 
-    saveCredential({ tenantId: opt.tenantId, clientId: opt.clientId, clientSecret: opt.clientSecret })
+    saveCredential({
+      tenantId: opt.tenantId,
+      clientId: opt.clientId,
+      clientSecret: opt.clientSecret,
+      msContact: opt.msContact,
+    })
 
     const token = await ui.spin('Acquiring token...', () =>
       acquireToken(opt.tenantId, opt.clientId, opt.clientSecret, { signal: controller.signal }),

@@ -6,13 +6,13 @@ import { APIError } from '../../src/support/errors.js'
 describe('assembleOptions', () => {
   it('uses config defaults when no CLI', () => {
     const o = assembleOptions(DEFAULT_CONFIG, [])
-    expect(o.msContact).toBe(DEFAULT_CONFIG.msContact)
+    expect(o.msContact).toBe('') // not a config default; filled from credential/prompt in run.ts
     expect(o.destination).toBe('windowsUpdate')
     expect(o.goLiveImmediate).toBe(true)
     expect(o.offerFilter).toBe(true)
     expect(o.outPath).toBe('shippinglabel.request.json')
   })
-  it('CLI overrides config', () => {
+  it('CLI provides msContact and overrides config', () => {
     const o = assembleOptions(DEFAULT_CONFIG, ['--ms-contact', 'a@b.com', '--product-id', 'P'])
     expect(o.msContact).toBe('a@b.com')
     expect(o.productId).toBe('P')

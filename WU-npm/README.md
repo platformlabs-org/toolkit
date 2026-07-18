@@ -33,7 +33,6 @@ npx wu-cli
 
 | Key | Default |
 |-----|---------|
-| `msContact` | `feizh@microsoft.com` |
 | `validationsPerformed` | `Product assurance team full range tested` |
 | `affectedOems` | `["N/A"]` |
 | `businessJustification` | `to meet MDA requirements` |
@@ -49,7 +48,7 @@ npx wu-cli
 | `hasUiSoftware` | `false` |
 | `visibleToAccounts` | `[]` |
 
-**Credentials** (Tenant ID, Client ID, Client Secret) are stored encrypted (AES-256-GCM, machine-bound key) in `~/.wu/credential.enc`.
+**Credentials** (Tenant ID, Client ID, Client Secret, and the Microsoft approval contact `msContact`) are stored encrypted (AES-256-GCM, machine-bound key) in `~/.wu/credential.enc`. `msContact` is **not** hardcoded or stored in `config.json`; it is prompted for on first run alongside the credentials (or supplied via `--ms-contact`, which also updates the stored value).
 
 **Precedence:** CLI flags > config file. There are no environment variable overrides.
 
@@ -159,7 +158,6 @@ npx wu-cli
 
 | 键名 | 默认值 |
 |------|--------|
-| `msContact` | `feizh@microsoft.com` |
 | `validationsPerformed` | `Product assurance team full range tested` |
 | `affectedOems` | `["N/A"]` |
 | `businessJustification` | `to meet MDA requirements` |
@@ -175,7 +173,7 @@ npx wu-cli
 | `hasUiSoftware` | `false` |
 | `visibleToAccounts` | `[]` |
 
-**凭据**（Tenant ID、Client ID、Client Secret）使用 AES-256-GCM 加密（机器绑定密钥）存储于 `~/.wu/credential.enc`。
+**凭据**（Tenant ID、Client ID、Client Secret，以及 Microsoft 审批联系人 `msContact`）使用 AES-256-GCM 加密（机器绑定密钥）存储于 `~/.wu/credential.enc`。`msContact` **不再**硬编码、也不存在 `config.json` 里；它在首次运行时随凭据一起提示输入（也可用 `--ms-contact` 提供，该值会同时更新已存储的值）。
 
 **优先级：** 命令行标志 > 配置文件，不支持环境变量覆盖。
 

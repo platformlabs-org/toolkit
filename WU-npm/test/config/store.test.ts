@@ -14,23 +14,24 @@ describe('config store', () => {
     const cfg = loadConfig(p)
     expect(cfg).toEqual(DEFAULT_CONFIG)
   })
-  it('default msContact matches Go value', () => {
-    expect(DEFAULT_CONFIG.msContact).toBe('feizh@microsoft.com')
+  it('has the expected built-in defaults and no msContact', () => {
     expect(DEFAULT_CONFIG.affectedOems).toEqual(['N/A'])
     expect(DEFAULT_CONFIG.destination).toBe('windowsUpdate')
+    // msContact is deliberately NOT a config default — it lives with the credential.
+    expect('msContact' in DEFAULT_CONFIG).toBe(false)
   })
   it('missing fields fall back to defaults', () => {
     const p = tmpFile()
-    writeFileSync(p, JSON.stringify({ msContact: 'a@b.com' }))
+    writeFileSync(p, JSON.stringify({ destination: 'custom' }))
     const cfg = loadConfig(p)
-    expect(cfg.msContact).toBe('a@b.com')
+    expect(cfg.destination).toBe('custom')
     expect(cfg.businessJustification).toBe(DEFAULT_CONFIG.businessJustification)
   })
   it('round-trips via save/load', () => {
     const p = tmpFile()
-    const cfg = { ...DEFAULT_CONFIG, msContact: 'x@y.com' }
+    const cfg = { ...DEFAULT_CONFIG, destination: 'x-dest' }
     saveConfig(cfg, p)
-    expect(loadConfig(p).msContact).toBe('x@y.com')
+    expect(loadConfig(p).destination).toBe('x-dest')
   })
   it('missing file is created on disk after loadConfig', () => {
     const p = tmpFile()

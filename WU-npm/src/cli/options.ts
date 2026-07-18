@@ -78,7 +78,9 @@ export function assembleOptions(config: WuConfig, argv: string[]): CLIOptions {
     autoInstallOnApplicableSystems: autoApplicable,
     isDisclosureRestricted: m.hasFlag('--is-disclosure-restricted') || config.isDisclosureRestricted,
     publishToWindows10s: m.hasFlag('--publish-to-windows10s') || config.publishToWindows10s,
-    msContact: firstNonEmpty(m.getSingle('--ms-contact'), config.msContact),
+    // msContact is not a config default; it is prompted on first run and stored (encrypted)
+    // with the credential. Here it only picks up an explicit --ms-contact; run.ts fills the rest.
+    msContact: m.getSingle('--ms-contact'),
     validationsPerformed: firstNonEmpty(m.getSingle('--validations-performed'), config.validationsPerformed),
     affectedOems,
     isRebootRequired: m.hasFlag('--is-reboot-required') || config.isRebootRequired,
