@@ -10,7 +10,9 @@
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@clack/core": "^0.3.4",
