@@ -1,11 +1,29 @@
 {
-  "name": "wu-cli",
+  "name": "@platformtools/wu",
   "version": "1.0.0",
   "description": "CLI to create Windows Update Shipping Labels via Microsoft Hardware Dev Center API",
   "type": "module",
   "bin": { "wu": "dist/index.js" },
   "files": ["dist"],
   "engines": { "node": ">=18" },
+  "license": "MIT",
+  "author": "Liu Tianyi <i@terry.ee>",
+  "keywords": [
+    "cli",
+    "windows-update",
+    "hardware-dev-center",
+    "shipping-label",
+    "driver",
+    "microsoft"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platformlabs-org/toolkit.git",
+    "directory": "WU-npm"
+  },
+  "homepage": "https://github.com/platformlabs-org/toolkit/tree/main/WU-npm",
+  "bugs": "https://github.com/platformlabs-org/toolkit/issues",
+  "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
@@ -15,7 +33,6 @@
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
-    "@clack/core": "^0.3.4",
     "@clack/prompts": "^0.7.0",
     "picocolors": "^1.0.1"
   },
