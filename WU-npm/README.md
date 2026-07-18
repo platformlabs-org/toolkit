@@ -1,11 +1,11 @@
-# wu-cli
+# @platformtools/wu
 
 *English | [中文](#中文)*
 
 ## English
 
 ### Overview
-**wu-cli** is a Command-Line Interface (CLI) npm package written in TypeScript (Node.js ≥ 18) designed to interact with the Microsoft Hardware Dev Center API. It streamlines the process of generating Windows Update (WU) Shipping Labels for driver submissions, providing an interactive, step-by-step workflow with a visual aesthetic inspired by Cloudflare Wrangler. It is a TypeScript rewrite of [WU-Go](../WU-Go).
+**@platformtools/wu** is a Command-Line Interface (CLI) npm package written in TypeScript (Node.js ≥ 18) designed to interact with the Microsoft Hardware Dev Center API. It streamlines the process of generating Windows Update (WU) Shipping Labels for driver submissions, providing an interactive, step-by-step workflow with a visual aesthetic inspired by Cloudflare Wrangler. It is a TypeScript rewrite of [WU-Go](../WU-Go).
 
 ### Features
 - **Subcommand structure:** `wu` with no arguments opens an interactive command menu; `wu submit` runs the shipping-label workflow. New features are added as new subcommands. Includes global `--help`/`--version` and per-command `wu <command> --help`.
@@ -22,9 +22,9 @@
 
 ### Install
 ```bash
-npm install -g wu-cli
+npm install -g @platformtools/wu
 # or run without installing
-npx wu-cli
+npx @platformtools/wu
 ```
 
 ### Config & Credentials
@@ -130,7 +130,7 @@ These flags apply to the `submit` command (e.g. `wu submit --dry-run`).
 ## 中文
 
 ### 简介
-**wu-cli** 是一个使用 TypeScript（Node.js ≥ 18）编写的命令行界面（CLI）npm 包，旨在与 Microsoft Hardware Dev Center API 进行交互。它简化了为驱动程序提交生成 Windows Update（WU）Shipping Labels（发布标签）的流程，提供了一个交互式的逐步工作流，视觉风格受到 Cloudflare Wrangler 的启发。本项目是 [WU-Go](../WU-Go) 的 TypeScript 重写版本。
+**@platformtools/wu** 是一个使用 TypeScript（Node.js ≥ 18）编写的命令行界面（CLI）npm 包，旨在与 Microsoft Hardware Dev Center API 进行交互。它简化了为驱动程序提交生成 Windows Update（WU）Shipping Labels（发布标签）的流程，提供了一个交互式的逐步工作流，视觉风格受到 Cloudflare Wrangler 的启发。本项目是 [WU-Go](../WU-Go) 的 TypeScript 重写版本。
 
 ### 功能特点
 - **子命令结构：** 直接运行 `wu`（无参数）会打开交互式命令菜单；`wu submit` 运行发布标签工作流。新功能以新子命令的形式扩展。内置全局 `--help`/`--version` 以及每个子命令的 `wu <命令> --help`。
@@ -147,9 +147,9 @@ These flags apply to the `submit` command (e.g. `wu submit --dry-run`).
 
 ### 安装
 ```bash
-npm install -g wu-cli
+npm install -g @platformtools/wu
 # 或无需安装直接运行
-npx wu-cli
+npx @platformtools/wu
 ```
 
 ### 配置与凭据
