@@ -426,3 +426,9 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# WU-Go: secrets and local artifacts - NEVER commit
+WU-Go/credential.json
+WU-Go/*.request.json
+WU-Go/wu.exe
+WU-Go/*.exe
