@@ -1,0 +1,4 @@
+# Build products (rebuild via build.cmd / testuild_tests.cmd)
+build/
+*.obj
+*.exe
