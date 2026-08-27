@@ -100,6 +100,27 @@ bool is_console_session() {
     return my_session == console;
 }
 
+// True when this process is the ONLY one attached to the console: the window
+// was created for us (double-click in Explorer, `start` from cmd) and closes
+// the instant we exit, taking everything we printed with it. In a regular
+// terminal the shell is attached too, so the text survives our exit.
+bool owns_console_window() {
+    DWORD pids[8] = {};
+    DWORD n = GetConsoleProcessList(pids, 8);
+    return n == 1;
+}
+
+// Keep a double-clicked launch readable: hold the throwaway console open
+// until the user presses Enter. No-op when stdout goes to a persistent
+// terminal (or no console at all), so scripted use never blocks.
+void wait_for_enter_before_exit() {
+    if (!owns_console_window()) return;
+    std::fprintf(stdout, "\nPress Enter to exit...");
+    std::fflush(stdout);
+    int c;
+    while ((c = std::fgetc(stdin)) != '\n' && c != '\r' && c != EOF) {}
+}
+
 bool enable_privilege(LPCSTR priv) {
     HANDLE tok = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(),
@@ -120,10 +141,18 @@ bool enable_privilege(LPCSTR priv) {
     return ok && err == ERROR_SUCCESS;
 }
 
+// Tool identity. Bump on user-visible behavior/output changes; shown by
+// --version and in the --help banner.
+constexpr char kVersion[] = "1.0.0";
+
 void print_usage(FILE* f) {
+    const std::string banner = std::string("AppTrace v") + kVersion +
+        " - measure Windows app launch -> first-window time";
+    std::fprintf(f, "%s\n", banner.c_str());
+    // Contact right-aligned under the banner's right edge.
+    std::fprintf(f, "%*s\n", (int)banner.size(), "liuty24@lenovo.com");
     std::fprintf(f,
-        "AppTrace - measure Windows app launch -> first-window time\n\n"
-        "Usage: AppTrace.exe [options] -- <target> [args...]\n\n"
+        "\nUsage: AppTrace.exe [options] -- <target> [args...]\n\n"
         "Target (pick one):\n"
         "  app.exe | app.lnk      launch a specific program / shortcut\n"
         "  <document>             open the file with its DEFAULT associated\n"
@@ -150,6 +179,7 @@ void print_usage(FILE* f) {
         "      --keep            keep the target app running after capture\n"
         "                         (default: terminate it once data is captured)\n"
         "      --cleanup         stop any stuck NT Kernel Logger session then exit\n"
+        "  -V, --version         print version (and build date) then exit\n"
         "  -h, --help            show this help\n\n"
         "Timeline milestones:\n"
         "  T0  launch call (CreateProcess) - when the clock starts\n"
@@ -211,7 +241,16 @@ bool parse_args(int argc, char** argv, Options& o, std::string& err) {
         };
 
         if (a == "--") { saw_double_dash = true; ++i; break; }
-        if (a == "-h" || a == "--help") { print_usage(stdout); std::exit(0); }
+        if (a == "-V" || a == "--version") {
+            std::printf("AppTrace v%s (built %s)\n", kVersion, __DATE__);
+            wait_for_enter_before_exit();
+            std::exit(0);
+        }
+        if (a == "-h" || a == "--help") {
+            print_usage(stdout);
+            wait_for_enter_before_exit();
+            std::exit(0);
+        }
         if (a == "--cleanup") { o.cleanup_only = true; ++i; continue; }
         if (a == "--debug")   { o.debug = true; ++i; continue; }
         if (a == "-o" || a == "--output") { if (!next_str(o.output_file)) return false; }
@@ -605,6 +644,7 @@ int main(int argc, char** argv) {
     if (!parse_args(argc, argv, o, err)) {
         std::fprintf(stderr, "error: %s\n\n", err.c_str());
         print_usage(stderr);
+        wait_for_enter_before_exit();
         return kExitUsage;
     }
 
@@ -613,6 +653,7 @@ int main(int argc, char** argv) {
             "ERROR: must run as administrator.\n"
             "       Right-click AppTrace.exe -> 'Run as administrator'.\n"
             "       (The NT Kernel Logger needs SeSystemProfilePrivilege.)\n");
+        wait_for_enter_before_exit();
         return kExitNotAdmin;
     }
     // Best-effort: enable the privilege explicitly.
