@@ -1,0 +1,44 @@
+{
+  "name": "@platformtools/spms",
+  "version": "1.0.0",
+  "description": "CLI to browse, query and download from Lenovo SPMS (NG SPMS) via CAS SSO + FTPS",
+  "bin": {
+    "spms": "spms_cli.js"
+  },
+  "files": [
+    "spms_cli.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "author": "Liu Tianyi <i@terry.ee>",
+  "keywords": [
+    "cli",
+    "spms",
+    "lenovo",
+    "driver",
+    "ftps",
+    "download",
+    "cat",
+    "driver-metadata"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platformlabs-org/toolkit.git",
+    "directory": "SPMS-CLI"
+  },
+  "homepage": "https://github.com/platformlabs-org/toolkit/tree/main/SPMS-CLI",
+  "bugs": "https://github.com/platformlabs-org/toolkit/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "spms": "node spms_cli.js"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "7zip-bin": "^5.2.0",
+    "picocolors": "^1.0.1"
+  }
+}
