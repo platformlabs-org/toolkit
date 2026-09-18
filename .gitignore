@@ -432,3 +432,6 @@ WU-Go/credential.json
 WU-Go/*.request.json
 WU-Go/wu.exe
 WU-Go/*.exe
+
+# AppTrace: hyperframes video project working directory (211MB, local only)
+AppTrace/videos/
