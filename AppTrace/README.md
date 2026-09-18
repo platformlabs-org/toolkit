@@ -19,7 +19,7 @@ build.cmd
 
 输出 `build\AppTrace.exe`。自动探测 vcvars,支持 MSVC / clang-cl / clang / g++。
 
-单元测试(28 项,零框架):
+单元测试(30 项,零框架):
 
 ```cmd
 test\build_tests.cmd && test\test_core.exe
@@ -27,7 +27,10 @@ test\build_tests.cmd && test\test_core.exe
 
 ## 使用
 
-**必须以管理员身份运行**(NT Kernel Logger 需要 SeSystemProfilePrivilege)。
+**必须以管理员身份运行**(NT Kernel Logger 需要 SeSystemProfilePrivilege)。双击
+`AppTrace.exe`(或无参数运行)会自动弹 UAC 请求提权并进入**交互模式**:直接粘贴
+exe / `.lnk` / 文档路径(带或不带引号、含空格均可)回车即测,可连续测多个目标,
+空行或 `q` 退出;行内语法与命令行完全一致(如 `--warmup 1 --runs 3 -- C:\Path\MyApp.exe`)。
 
 ```cmd
 :: 指定程序
@@ -156,9 +159,12 @@ DxgKrnl PresentHistory ──► 专用队列全量转发(上游不过滤),
 
 ```
 src/
-├── main.cpp            # CLI 解析 + capture_once 编排 + 批量模式
+├── main.cpp            # CLI 解析 + capture_once 编排 + 批量/交互模式
 ├── Config.hpp          # 集中可调常量(队列/缓存容量、超时、teardown)
 ├── Options.hpp         # CLI 选项 + RunResult 字段 + 退出码
+├── Interactive.hpp     # 交互模式行解析(引号剥离/含空格路径修复)
+├── Version.hpp         # 版本号单一来源(横幅/--version 与 .rc 共用)
+├── AppTrace.rc         # 版本信息资源(文件属性 → 详细信息)
 ├── Launcher.hpp        # 启动策略(exe/lnk/UWP/文档关联)+ 三阶段 teardown
 ├── KernelSession.hpp   # NT Kernel Logger:所有 Process/Start → 注册表 + 队列
 ├── DxgKrnlSession.hpp  # DxgKrnl PresentHistory 全量转发(专用队列)
@@ -173,7 +179,7 @@ src/
 ├── Utf8.hpp            # UTF-8 输出 + 字符串助手(to_wide/lowered/basename)
 └── QpcClock.hpp        # 统一 QPC 时基
 test/
-├── test_core.cpp       # 28 项单元测试(队列/树/注册表/时间线/主窗口裁决)
+├── test_core.cpp       # 30 项单元测试(队列/树/注册表/时间线/主窗口裁决/交互解析)
 ├── build_tests.cmd     # 测试构建脚本
 └── remote_*.ps1        # 远程(LABS-XIAOXIN)批量/重测/文件测试脚本
 ```

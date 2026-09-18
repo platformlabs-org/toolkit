@@ -23,6 +23,7 @@
 #include "../src/ProcessRegistry.hpp"
 #include "../src/Timeline.hpp"
 #include "../src/QpcClock.hpp"
+#include "../src/Interactive.hpp"
 
 using namespace st;
 
@@ -683,6 +684,66 @@ TEST(timeline_largest_area_wins_over_late_small) {
     DestroyWindow(small);
 }
 
+// ===========================================================================
+// Interactive-mode line parsing (Interactive.hpp)
+// ===========================================================================
+
+TEST(interactive_tokenize_line) {
+    // Quoted path pasted from "Copy as path": one token, quotes stripped.
+    auto t = tokenize_line("\"C:\\Program Files\\App\\app.exe\"");
+    CHECK_EQ(t.size(), 1);
+    CHECK(t[0] == "C:\\Program Files\\App\\app.exe");
+
+    // Mixed command line: bare token, option, quoted arg with spaces, tail.
+    t = tokenize_line("app.exe --flag \"arg with spaces\" tail");
+    CHECK_EQ(t.size(), 4);
+    CHECK(t[0] == "app.exe");
+    CHECK(t[1] == "--flag");
+    CHECK(t[2] == "arg with spaces");
+    CHECK(t[3] == "tail");
+
+    // Single quotes group too; whitespace-only input tokenizes to nothing.
+    t = tokenize_line("'C:\\My App\\a.exe' x");
+    CHECK_EQ(t.size(), 2);
+    CHECK(t[0] == "C:\\My App\\a.exe");
+    CHECK(tokenize_line("   ").empty());
+
+    // Unterminated quote: take the rest of the line (never lose input).
+    t = tokenize_line("\"unterminated path");
+    CHECK_EQ(t.size(), 1);
+    CHECK(t[0] == "unterminated path");
+}
+
+TEST(interactive_join_spaced_target) {
+    // Unquoted path with spaces: join args until the accumulated path exists;
+    // consumed args leave, the rest stay as launch arguments.
+    auto exists_full = [](const std::string& p) {
+        return p == "C:\\Program Files\\App\\app.exe";
+    };
+    std::string target = "C:\\Program";
+    std::vector<std::string> args = {"Files\\App\\app.exe", "--flag", "x"};
+    CHECK_EQ(join_spaced_target(target, args, exists_full), 1);
+    CHECK(target == "C:\\Program Files\\App\\app.exe");
+    CHECK_EQ(args.size(), 2);
+    CHECK(args[0] == "--flag");
+
+    // Nothing joins to an existing file: target and args untouched.
+    std::string t2 = "nope";
+    std::vector<std::string> a2 = {"a", "b"};
+    CHECK_EQ(join_spaced_target(t2, a2,
+                                [](const std::string&) { return false; }), 0);
+    CHECK(t2 == "nope");
+    CHECK_EQ(a2.size(), 2);
+
+    // Target already exists (quoted input): no joining, args preserved.
+    std::string t3 = "app.exe";
+    std::vector<std::string> a3 = {"--flag"};
+    CHECK_EQ(join_spaced_target(t3, a3,
+                                [](const std::string& p) { return p == "app.exe"; }), 0);
+    CHECK(t3 == "app.exe");
+    CHECK_EQ(a3.size(), 1);
+}
+
 int main() {
     std::printf("=== startup-time core unit tests ===\n\n");
 
@@ -725,6 +786,10 @@ int main() {
     RUN(timeline_window_cached_until_tree_growth);
     RUN(timeline_path_is_under);
     RUN(tracker_adopt_dir_orphan);
+
+    std::printf("\n[Interactive line parsing]\n");
+    RUN(interactive_tokenize_line);
+    RUN(interactive_join_spaced_target);
 
     std::printf("\n=== %d tests, %d passed, %d failed ===\n",
                 g_tests_run, g_tests_run - g_tests_failed, g_tests_failed);

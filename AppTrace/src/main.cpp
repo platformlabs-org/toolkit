@@ -1,4 +1,4 @@
-// AppTrace - measure Windows app launch -> first-window time.
+// AppTrace - Windows App start up time measurement.
 //
 // Measures the launch -> UI-showup time of a Windows desktop app by combining
 // ETW (NT Kernel Logger Process/Start + DxgKrnl PresentHistory) and WinEvent
@@ -31,6 +31,8 @@
 
 #include "Config.hpp"
 #include "Options.hpp"
+#include "Interactive.hpp"
+#include "Version.hpp"
 #include "QpcClock.hpp"
 #include "EventQueue.hpp"
 #include "JsonWriter.hpp"
@@ -142,17 +144,19 @@ bool enable_privilege(LPCSTR priv) {
 }
 
 // Tool identity. Bump on user-visible behavior/output changes; shown by
-// --version and in the --help banner.
-constexpr char kVersion[] = "1.0.0";
+// --version and in the --help banner. Version.hpp is shared with AppTrace.rc
+// so Explorer's Properties -> Details stays in sync.
+constexpr char kVersion[] = APPTRACE_VERSION_STRING;
 
 void print_usage(FILE* f) {
     const std::string banner = std::string("AppTrace v") + kVersion +
-        " - measure Windows app launch -> first-window time";
+        " - Windows App start up time measurement";
     std::fprintf(f, "%s\n", banner.c_str());
     // Contact right-aligned under the banner's right edge.
     std::fprintf(f, "%*s\n", (int)banner.size(), "liuty24@lenovo.com");
     std::fprintf(f,
-        "\nUsage: AppTrace.exe [options] -- <target> [args...]\n\n"
+        "\nUsage: AppTrace.exe [options] -- <target> [args...]\n"
+        "       (or double-click / run with no arguments: interactive mode)\n\n"
         "Target (pick one):\n"
         "  app.exe | app.lnk      launch a specific program / shortcut\n"
         "  <document>             open the file with its DEFAULT associated\n"
@@ -221,7 +225,9 @@ void print_usage(FILE* f) {
         "  first_frame_event_id    ETW event id that marked the frame (173/171/184)\n"
         "  JSONL only: adopted / reuse_adopted / tracker_count / qpc_freq\n"
         "              (correlation diagnostics for analysis)\n\n"
-        "Must be run as administrator (right-click -> Run as administrator).\n");
+        "Must be run as administrator. Double-clicking requests elevation\n"
+        "automatically (UAC); from a terminal, right-click -> Run as\n"
+        "administrator.\n");
 }
 
 bool parse_args(int argc, char** argv, Options& o, std::string& err) {
@@ -284,6 +290,27 @@ bool parse_args(int argc, char** argv, Options& o, std::string& err) {
     o.target_exe = argv[i++];
     while (i < argc) o.target_args.emplace_back(argv[i++]);
     return true;
+}
+
+// The display label derives from the REAL (long-path) exe name, not the
+// raw user input: 8.3 short paths like "PHOTOS~1.EXE" would otherwise show
+// up as "PHOTOS~1" instead of "Photoshop.exe". GetLongPathNameW requires
+// the file to exist, so fall back to the input basename if it fails (e.g.
+// a bare command name resolved via PATH). The label is emitted as UTF-8 so
+// Chinese app names survive every consumer downstream.
+std::string label_for(const std::string& target) {
+    wchar_t wexe[MAX_PATH] = {};
+    MultiByteToWideChar(CP_ACP, 0, target.c_str(), -1, wexe, MAX_PATH);
+    wchar_t wlong[MAX_PATH] = {};
+    std::string source = target;
+    if (GetLongPathNameW(wexe, wlong, MAX_PATH) > 0) {
+        char narrow[MAX_PATH] = {};
+        WideCharToMultiByte(CP_ACP, 0, wlong, -1, narrow, MAX_PATH, nullptr, nullptr);
+        if (narrow[0]) source = narrow;
+    }
+    // Keep the full basename WITH extension (e.g. "Photoshop.exe") - it's
+    // the same key used for process-name correlation.
+    return to_utf8(basename_of(source));
 }
 
 // Reuse-scenario adoption, fallback pass: scan LIVE processes for an image
@@ -636,12 +663,248 @@ RunResult capture_once(const Options& o, QpcClock& clock) {
     return r;
 }
 
+// ---------------------------------------------------------------------------
+// Self-elevation: double-click support without a requireAdministrator
+// manifest (a manifest would make --help/--version fail outright in any
+// non-elevated terminal). We re-launch ourselves with the "runas" verb,
+// forwarding the original command line verbatim.
+// ---------------------------------------------------------------------------
+
+// Everything after argv[0] in the original (wide) command line. Forwarding
+// the wide line preserves quoting that ANSI argv parsing would have lost.
+std::wstring params_after_program(const std::wstring& cl) {
+    size_t i = 0, n = cl.size();
+    if (i < n && cl[i] == L'"') {
+        ++i;
+        while (i < n && cl[i] != L'"') ++i;
+        if (i < n) ++i;
+    } else {
+        while (i < n && cl[i] != L' ' && cl[i] != L'\t') ++i;
+    }
+    while (i < n && (cl[i] == L' ' || cl[i] == L'\t')) ++i;
+    return cl.substr(i);
+}
+
+// Re-launch ourselves elevated. Returns 0 once the elevated instance has
+// started (it gets its own console; this one closes when we exit), or
+// kExitNotAdmin after printing why (e.g. the user declined the UAC prompt).
+int relaunch_elevated() {
+    wchar_t exe[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    wchar_t dir[MAX_PATH] = {};
+    GetCurrentDirectoryW(MAX_PATH, dir);  // UAC would otherwise reset cwd to System32
+
+    std::wstring params = params_after_program(GetCommandLineW());
+
+    SHELLEXECUTEINFOW sei{};
+    sei.cbSize       = sizeof(sei);
+    sei.lpVerb       = L"runas";
+    sei.lpFile       = exe;
+    sei.lpParameters = params.empty() ? nullptr : params.c_str();
+    sei.lpDirectory  = dir;
+    sei.nShow        = SW_SHOWNORMAL;
+
+    std::fprintf(stdout,
+        "Requesting administrator privileges (accept the UAC prompt)...\n");
+    if (ShellExecuteExW(&sei)) return 0;
+
+    DWORD err = GetLastError();
+    if (err == ERROR_CANCELLED) {
+        std::fprintf(stderr,
+            "Administrator privileges were declined - AppTrace cannot run "
+            "without them.\n");
+    } else {
+        std::fprintf(stderr, "Elevation failed (err=%lu).\n", err);
+    }
+    return kExitNotAdmin;
+}
+
+// ---------------------------------------------------------------------------
+// Interactive mode: prompt for targets, measure, repeat.
+// ---------------------------------------------------------------------------
+
+bool file_exists(const std::string& p) {
+    return GetFileAttributesA(p.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+// Resolve a bare name (e.g. "winver.exe") against the system search path.
+// Empty when not found.
+std::string search_path_of(const std::string& name) {
+    wchar_t wname[MAX_PATH] = {};
+    MultiByteToWideChar(CP_ACP, 0, name.c_str(), -1, wname, MAX_PATH);
+    wchar_t wbuf[MAX_PATH] = {};
+    DWORD n = SearchPathW(nullptr, wname, nullptr, MAX_PATH, wbuf, nullptr);
+    if (n == 0 || n >= MAX_PATH) return {};
+    char narrow[MAX_PATH] = {};
+    WideCharToMultiByte(CP_ACP, 0, wbuf, -1, narrow, MAX_PATH, nullptr, nullptr);
+    return narrow;
+}
+
+// Read one console line as wide characters, then convert to the active
+// codepage (the launch pipeline is ACP-based). Curly quotes that chat apps
+// paste are normalized to straight ones. Falls back to fgets when stdin is
+// redirected (ReadConsoleW needs a real console handle); EOF yields "".
+std::string read_line() {
+    wchar_t wbuf[2048];
+    DWORD n = 0;
+    HANDLE hin = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    if (hin != INVALID_HANDLE_VALUE && GetConsoleMode(hin, &mode) &&
+        ReadConsoleW(hin, wbuf, 2047, &n, nullptr)) {
+        wbuf[n] = 0;
+        for (DWORD k = 0; k < n; ++k) {
+            if (wbuf[k] == 0x201C || wbuf[k] == 0x201D) wbuf[k] = L'"';
+            if (wbuf[k] == 0x2018 || wbuf[k] == 0x2019) wbuf[k] = L'\'';
+        }
+        while (n > 0 && (wbuf[n - 1] == L'\n' || wbuf[n - 1] == L'\r')) wbuf[--n] = 0;
+        if (n == 0) return {};
+        int len = WideCharToMultiByte(CP_ACP, 0, wbuf, -1, nullptr, 0,
+                                      nullptr, nullptr);
+        std::string s(size_t(len) - 1, 0);
+        WideCharToMultiByte(CP_ACP, 0, wbuf, -1, &s[0], len, nullptr, nullptr);
+        return s;
+    }
+    char buf[2048];
+    if (std::fgets(buf, sizeof(buf), stdin)) {
+        std::string s = buf;
+        while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+        return s;
+    }
+    return {};  // EOF: caller treats as quit
+}
+
+// Parse one interactive input line into Options, mirroring the CLI grammar
+// "[options] <target> [args...]". Beyond parse_args this repairs unquoted
+// paths containing spaces and validates that the target exists as a file
+// (exe/.lnk/document) or resolves via the search path. Returns false with
+// a human-readable err on anything that should re-prompt.
+bool parse_interactive_line(const std::string& line, Options& o, std::string& err) {
+    std::vector<std::string> toks = tokenize_line(line);
+    if (toks.empty()) { err = "nothing entered"; return false; }
+
+    // Reuse the CLI parser over a synthesized argv (argv[0] = program).
+    std::vector<std::string> storage;
+    storage.push_back("AppTrace");
+    for (const auto& t : toks) storage.push_back(t);
+    std::vector<char*> argv;
+    for (auto& s : storage) argv.push_back(&s[0]);
+    if (!parse_args((int)argv.size(), argv.data(), o, err)) return false;
+    if (o.cleanup_only || !o.batch_file.empty()) {
+        err = "--cleanup / --batch are command-line only";
+        return false;
+    }
+    if (o.target_exe.empty()) { err = "no target given"; return false; }
+
+    // Unquoted path with spaces: parse_args saw only its first chunk; try
+    // joining chunks until one names an existing file.
+    join_spaced_target(o.target_exe, o.target_args, file_exists);
+
+    if (file_exists(o.target_exe)) return true;
+    std::string hit = search_path_of(o.target_exe);
+    if (!hit.empty()) {
+        o.target_exe = hit;  // full path: better for launch + display
+        return true;
+    }
+    err = "not found: " + to_utf8(o.target_exe) +
+          "\n       check the path, or wrap it in quotes if it contains spaces";
+    return false;
+}
+
+// One full measurement of Options `o` (warmup runs, measured runs, output,
+// multi-run summary). Returns the structured exit code; when `last` is
+// non-null it receives the final measured RunResult (interactive mode
+// prints a friendly line from it).
+int measure_and_report(const Options& o, QpcClock& clock, RunResult* last = nullptr) {
+    std::string label = label_for(o.target_exe);
+
+    // Warmup runs (not reported). These heat OS file caches so measured
+    // runs reflect a "warm" start. Each warmup run terminates the app, then
+    // we wait for the process tree to fully exit before continuing.
+    for (int i = 0; i < o.warmup; ++i) {
+        Options wo = o; wo.output_file.clear();
+        capture_once(wo, clock);
+        Sleep(1500);  // let processes unwind + file caches settle
+    }
+
+    if (o.csv) print_csv_header();
+
+    std::vector<RunResult> results;
+    for (int i = 0; i < o.runs; ++i) {
+        RunResult r = capture_once(o, clock);
+        write_output(o, r, clock, label.c_str());
+        results.push_back(r);
+        if (i + 1 < o.runs) Sleep(1000);
+    }
+    if (o.runs > 1) print_summary(results, o.csv);
+    if (last) *last = results.back();
+
+    // Choose a structured exit code from the collected results so CI/scripts
+    // can branch without parsing output. Priority: any T4 success > any
+    // correlation (main_pid) > nothing matched.
+    bool any_present = false, any_correlated = false;
+    for (auto& r : results) {
+        if (r.first_frame_seen) any_present = true;
+        if (r.main_pid != 0) any_correlated = true;
+    }
+    return any_present ? kExitOk
+                     : any_correlated ? kExitPartial
+                     : kExitNoCorrelation;
+}
+
+void print_interactive_banner() {
+    std::printf(
+        "Interactive mode - Windows App start up time measurement.\n"
+        "Enter a target, then press Enter:\n"
+        "  exe path      C:\\Program Files\\App\\app.exe\n"
+        "  shortcut      C:\\Users\\Me\\Desktop\\App.lnk\n"
+        "  document      D:\\docs\\report.xlsx   (opened with its default app)\n"
+        "  bare name     winver.exe             (found via the search path)\n"
+        "Quotes are optional and paths with spaces are fine; anything after\n"
+        "the path is passed to the app as launch arguments. Options like\n"
+        "--runs 3 --warmup 1 may precede the target.\n"
+        "Empty line or 'q' quits.\n");
+}
+
+int run_interactive(QpcClock& clock) {
+    print_interactive_banner();
+    for (;;) {
+        std::printf("\ntarget> ");
+        std::fflush(stdout);
+        std::string line = read_line();
+
+        size_t b = line.find_first_not_of(" \t");
+        if (b == std::string::npos) break;  // empty line: quit
+        size_t e = line.find_last_not_of(" \t");
+        line = line.substr(b, e - b + 1);
+        std::string low = lowered(line);
+        if (low == "q" || low == "quit" || low == "exit") break;
+
+        Options o;
+        std::string err;
+        if (!parse_interactive_line(line, o, err)) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            continue;
+        }
+        maybe_resolve_shortcut(o);
+        std::printf("measuring: %s\n", to_utf8(o.target_exe).c_str());
+        RunResult last;
+        measure_and_report(o, clock, &last);
+        std::printf("  window: %.1f ms | first frame: %.1f ms%s | pid %u\n",
+                    last.time_to_window_ms, last.time_to_first_frame_ms,
+                    last.first_frame_seen ? "" : " (none)", last.main_pid);
+    }
+    return kExitOk;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     Options o;
     std::string err;
-    if (!parse_args(argc, argv, o, err)) {
+    // No arguments at all = double-click: interactive mode instead of a
+    // usage error.
+    const bool interactive = (argc == 1);
+    if (!interactive && !parse_args(argc, argv, o, err)) {
         std::fprintf(stderr, "error: %s\n\n", err.c_str());
         print_usage(stderr);
         wait_for_enter_before_exit();
@@ -649,9 +912,19 @@ int main(int argc, char** argv) {
     }
 
     if (!is_elevated()) {
+        // Double-click / `start` (we own the throwaway console): request
+        // elevation ourselves so the user doesn't need right-click -> Run as
+        // administrator. From a shared terminal keep the explicit error -
+        // scripts must not get surprise UAC prompts.
+        if (owns_console_window()) {
+            int rc = relaunch_elevated();
+            if (rc != 0) wait_for_enter_before_exit();
+            return rc;
+        }
         std::fprintf(stderr,
             "ERROR: must run as administrator.\n"
-            "       Right-click AppTrace.exe -> 'Run as administrator'.\n"
+            "       Double-click AppTrace.exe (elevation is requested\n"
+            "       automatically), or right-click -> 'Run as administrator'.\n"
             "       (The NT Kernel Logger needs SeSystemProfilePrivilege.)\n");
         wait_for_enter_before_exit();
         return kExitNotAdmin;
@@ -672,6 +945,9 @@ int main(int argc, char** argv) {
         std::printf("NT Kernel Logger: %s\n",
                     stopped ? "stopped (was running)" : "not running");
         std::printf("Stale DxgKrnl sessions stopped: %zu\n", stale);
+        // When relaunched elevated this run owns a throwaway console; hold it
+        // so the result stays readable (no-op in a shared terminal).
+        wait_for_enter_before_exit();
         return 0;
     }
 
@@ -681,6 +957,21 @@ int main(int argc, char** argv) {
     // capture_once). Init once here; nested CoInitializeEx in capture_once is a
     // no-op that returns S_FALSE.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+    // ---- interactive mode: prompt -> measure -> repeat --------------------
+    // Shortcut resolution and session checks happen per entered target.
+    if (interactive) {
+        if (!is_console_session()) {
+            std::fprintf(stderr,
+                "Warning: not running in the physical console session.\n"
+                "         Some GUI apps (GPU-bound, UWP) won't create windows here,\n"
+                "         yielding zero T2/T3. Run from the console session for\n"
+                "         reliable window capture.\n");
+        }
+        int rc = run_interactive(clock);
+        wait_for_enter_before_exit();
+        return rc;
+    }
 
     // Resolve .lnk shortcuts to their target exe + args in place, so the rest
     // of the pipeline works against the real exe path/name.
@@ -696,27 +987,6 @@ int main(int argc, char** argv) {
             "         yielding zero T2/T3. Run from the console session for\n"
             "         reliable window capture, or use --no-winevent for T0/T1/T4.\n");
     }
-
-    // The display label derives from the REAL (long-path) exe name, not the
-    // raw user input: 8.3 short paths like "PHOTOS~1.EXE" would otherwise show
-    // up as "PHOTOS~1" instead of "Photoshop.exe". GetLongPathNameW requires
-    // the file to exist, so fall back to the input basename if it fails (e.g.
-    // a bare command name resolved via PATH). The label is emitted as UTF-8 so
-    // Chinese app names survive every consumer downstream.
-    auto label_for = [](const std::string& target) -> std::string {
-        wchar_t wexe[MAX_PATH] = {};
-        MultiByteToWideChar(CP_ACP, 0, target.c_str(), -1, wexe, MAX_PATH);
-        wchar_t wlong[MAX_PATH] = {};
-        std::string source = target;
-        if (GetLongPathNameW(wexe, wlong, MAX_PATH) > 0) {
-            char narrow[MAX_PATH] = {};
-            WideCharToMultiByte(CP_ACP, 0, wlong, -1, narrow, MAX_PATH, nullptr, nullptr);
-            if (narrow[0]) source = narrow;
-        }
-        // Keep the full basename WITH extension (e.g. "Photoshop.exe") - it's
-        // the same key used for process-name correlation.
-        return to_utf8(basename_of(source));
-    };
 
     // ---- batch mode: measure every app listed in --batch <file>, summarize ----
     if (!o.batch_file.empty()) {
@@ -799,45 +1069,12 @@ int main(int argc, char** argv) {
                         row.r.time_to_first_frame_ms,
                         row.r.first_frame_seen ? "yes" : "-");
         }
+        // Hold a relaunch-owned throwaway console open (no-op when shared).
+        wait_for_enter_before_exit();
         return any_present ? kExitOk : kExitPartial;
     }
 
-    std::string label = label_for(o.target_exe);
-
-    // Warmup runs (not reported). These heat OS file caches so measured runs
-    // reflect a "warm" start. Each warmup run terminates the app, then we wait
-    // for the process tree to fully exit before continuing.
-    for (int i = 0; i < o.warmup; ++i) {
-        Options wo = o; wo.output_file.clear();
-        capture_once(wo, clock);
-        Sleep(1500); // let processes unwind + file caches settle
-    }
-
-    if (o.csv) print_csv_header();
-
-    std::vector<RunResult> results;
-    for (int i = 0; i < o.runs; ++i) {
-        RunResult r = capture_once(o, clock);
-        write_output(o, r, clock, label.c_str());
-        results.push_back(r);
-        if (i + 1 < o.runs) Sleep(1000);
-    }
-
-    // Summary when multiple runs.
-    if (o.runs > 1) {
-        print_summary(results, o.csv);
-    }
-
-    // Choose a structured exit code from the collected results so CI/scripts
-    // can branch without parsing output. Priority: any T4 success > any
-    // correlation (main_pid) > nothing matched.
-    bool any_present = false, any_correlated = false;
-    for (auto& r : results) {
-        if (r.first_frame_seen) any_present = true;
-        if (r.main_pid != 0) any_correlated = true;
-    }
-    int code = any_present ? kExitOk
-             : any_correlated ? kExitPartial
-             : kExitNoCorrelation;
+    int code = measure_and_report(o, clock);
+    wait_for_enter_before_exit();  // hold a relaunch-owned console open
     return code;
 }

@@ -29,11 +29,30 @@ for %%Y in (Community Professional Enterprise BuildTools) do (
 )
 :have_compiler
 
+REM --- 0.5 Version resource (Explorer Properties -> Details) ---------------
+REM Compiled with rc.exe (Windows SDK) or windres (MinGW); skipped with a
+REM note when neither exists - version info is cosmetic, never break a build.
+set "RESRC=%SRCDIR%\AppTrace.rc"
+set "RES="
+where rc >nul 2>nul
+if not errorlevel 1 (
+    rc /nologo /fo "%OUTDIR%\AppTrace.res" "%RESRC%" >nul 2>&1
+    if not errorlevel 1 set "RES=%OUTDIR%\AppTrace.res"
+)
+if not defined RES (
+    where windres >nul 2>nul
+    if not errorlevel 1 (
+        windres "%RESRC%" -O coff -o "%OUTDIR%\AppTrace.res" >nul 2>&1
+        if not errorlevel 1 set "RES=%OUTDIR%\AppTrace.res"
+    )
+)
+if not defined RES echo [build] note: rc/windres not found - version info skipped
+
 REM --- 1. Try MSVC cl.exe ---
 where cl >nul 2>nul
 if %errorlevel%==0 (
     echo [build] using MSVC cl
-    cl %CXXFLAGS% "%SRC%" /Fe:"%OUT%" %LDFLAGS%
+    cl %CXXFLAGS% "%SRC%" %RES% /Fe:"%OUT%" %LDFLAGS%
     if not errorlevel 1 goto :ok
     goto :fail
 )
@@ -42,7 +61,7 @@ REM --- 2. Try clang-cl ---
 where clang-cl >nul 2>nul
 if %errorlevel%==0 (
     echo [build] using clang-cl
-    clang-cl %CXXFLAGS% "%SRC%" /Fe:"%OUT%" %LDFLAGS%
+    clang-cl %CXXFLAGS% "%SRC%" %RES% /Fe:"%OUT%" %LDFLAGS%
     if not errorlevel 1 goto :ok
     goto :fail
 )
@@ -52,7 +71,7 @@ where clang >nul 2>nul
 if %errorlevel%==0 (
     echo [build] using clang
     clang -O2 -std=c++17 -DNOMINMAX -DWIN32_LEAN_AND_MEAN -DUNICODE -D_UNICODE -D_CRT_SECURE_NO_WARNINGS ^
-        "%SRC%" -o "%OUT%" -ladvapi32 -luser32 -lshell32 -lole32 -lruntimeobject -static -static-libgcc -static-libstdc++
+        "%SRC%" %RES% -o "%OUT%" -ladvapi32 -luser32 -lshell32 -lole32 -lruntimeobject -static -static-libgcc -static-libstdc++
     if not errorlevel 1 goto :ok
     goto :fail
 )
@@ -62,7 +81,7 @@ where clang++ >nul 2>nul
 if %errorlevel%==0 (
     echo [build] using clang++
     clang++ -O2 -std=c++17 -DNOMINMAX -DWIN32_LEAN_AND_MEAN -DUNICODE -D_UNICODE -D_CRT_SECURE_NO_WARNINGS ^
-        "%SRC%" -o "%OUT%" -ladvapi32 -luser32 -lshell32 -lole32 -lruntimeobject -static -static-libgcc -static-libstdc++
+        "%SRC%" %RES% -o "%OUT%" -ladvapi32 -luser32 -lshell32 -lole32 -lruntimeobject -static -static-libgcc -static-libstdc++
     if not errorlevel 1 goto :ok
     goto :fail
 )
@@ -72,7 +91,7 @@ where g++ >nul 2>nul
 if %errorlevel%==0 (
     echo [build] using g++
     g++ -O2 -std=c++17 -DNOMINMAX -DWIN32_LEAN_AND_MEAN -DUNICODE -D_UNICODE -D_CRT_SECURE_NO_WARNINGS ^
-        "%SRC%" -o "%OUT%" -ladvapi32 -luser32 -lshell32 -lole32 -lruntimeobject -static -static-libgcc -static-libstdc++
+        "%SRC%" %RES% -o "%OUT%" -ladvapi32 -luser32 -lshell32 -lole32 -lruntimeobject -static -static-libgcc -static-libstdc++
     if not errorlevel 1 goto :ok
     goto :fail
 )

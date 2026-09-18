@@ -1,0 +1,33 @@
+// AppTrace.rc - VERSIONINFO resource (Explorer Properties -> Details).
+//
+// Resource id 1 is VS_VERSION_INFO; numeric literals are used instead of the
+// VS_/VFT_/VOS_ macros so this file compiles with both rc.exe (Windows SDK)
+// and windres (MinGW) without pulling in windows.h.
+#include "Version.hpp"
+
+1 VERSIONINFO
+FILEVERSION    APPTRACE_RC_VERSION
+PRODUCTVERSION APPTRACE_RC_VERSION
+FILEFLAGSMASK  0x3FL
+FILEFLAGS      0x0L
+FILEOS         0x40004L   // VOS_NT_WINDOWS32
+FILETYPE       0x1L       // VFT_APP
+FILESUBTYPE    0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"   // U.S. English, Unicode
+        BEGIN
+            VALUE "FileDescription",  "AppTrace - Windows App start up time measurement"
+            VALUE "FileVersion",      APPTRACE_VERSION_STRING
+            VALUE "InternalName",     "AppTrace"
+            VALUE "OriginalFilename", "AppTrace.exe"
+            VALUE "ProductName",      "AppTrace"
+            VALUE "ProductVersion",   APPTRACE_VERSION_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
